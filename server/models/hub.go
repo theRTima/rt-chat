@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"sync"
@@ -31,8 +32,25 @@ type Hub struct {
 	// Канал для обработки сообщений
 	Message chan *ClientMessage
 
+	// Storage интерфейс для работы с базой данных
+	Storage Storage
+
 	// Mutex для защиты доступа к clients map (дополнительная защита)
 	mu sync.RWMutex
+}
+
+// Storage интерфейс для работы с базой данных
+type Storage interface {
+	UpsertUser(ctx context.Context, userID, username string) error
+	UpsertRoom(ctx context.Context, roomID, name string) error
+	GetRoomHistory(ctx context.Context, roomID string, limit int) ([]*Message, error)
+	AddRoomMember(ctx context.Context, roomID, userID string) error
+	RemoveRoomMember(ctx context.Context, roomID, userID string) error
+}
+
+// MessagePersister интерфейс для асинхронного сохранения сообщений
+type MessagePersister interface {
+	Enqueue(msg *Message)
 }
 
 // ClientMessage представляет сообщение от клиента с контекстом
@@ -42,7 +60,7 @@ type ClientMessage struct {
 }
 
 // NewHub создает новый Hub
-func NewHub() *Hub {
+func NewHub(storage Storage) *Hub {
 	return &Hub{
 		Broadcast:   make(chan []byte, 256),
 		Register:    make(chan *Client),
@@ -51,6 +69,7 @@ func NewHub() *Hub {
 		clients:     make(map[*Client]bool),
 		userClients: make(map[string]*Client),
 		rooms:       make(map[string]*Room),
+		Storage:     storage,
 	}
 }
 
@@ -68,6 +87,18 @@ func (h *Hub) Run() {
 				h.userClients[client.UserID] = client
 			}
 			h.mu.Unlock()
+
+			// Сохраняем пользователя в БД (асинхронно, не блокируем регистрацию)
+			if h.Storage != nil {
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					defer cancel()
+					if err := h.Storage.UpsertUser(ctx, client.UserID, client.Username); err != nil {
+						log.Printf("Failed to save user to database: %v", err)
+					}
+				}()
+			}
+
 			log.Printf("Client %s connected. Total clients: %d", client.UserID, len(h.clients))
 
 		case client := <-h.Unregister:
@@ -155,6 +186,17 @@ func (h *Hub) handleJoinRoom(client *Client, msg *Message) {
 		room = NewRoom(msg.RoomID)
 		h.rooms[msg.RoomID] = room
 		log.Printf("Created new room: %s", msg.RoomID)
+
+		// Сохраняем комнату в БД (асинхронно)
+		if h.Storage != nil {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				if err := h.Storage.UpsertRoom(ctx, msg.RoomID, msg.RoomID); err != nil {
+					log.Printf("Failed to save room to database: %v", err)
+				}
+			}()
+		}
 	}
 	h.mu.Unlock()
 
@@ -162,9 +204,44 @@ func (h *Hub) handleJoinRoom(client *Client, msg *Message) {
 	room.AddClient(client)
 	client.AddRoom(msg.RoomID)
 
+	// Сохраняем членство в БД (асинхронно)
+	if h.Storage != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := h.Storage.AddRoomMember(ctx, msg.RoomID, client.UserID); err != nil {
+				log.Printf("Failed to save room member to database: %v", err)
+			}
+		}()
+	}
+
+	// Отправляем историю сообщений клиенту
+	if h.Storage != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			history, err := h.Storage.GetRoomHistory(ctx, msg.RoomID, 50)
+			if err != nil {
+				log.Printf("Failed to load room history: %v", err)
+				return
+			}
+
+			// Отправляем историю клиенту
+			for _, historyMsg := range history {
+				client.SendMessage(historyMsg)
+			}
+			log.Printf("Sent %d history messages to user %s in room %s", len(history), client.UserID, msg.RoomID)
+		}()
+	}
+
 	// Уведомляем всех в комнате о новом пользователе
 	notification := NewUserJoinedMessage(msg.RoomID, client.UserID, client.Username)
 	h.broadcastToRoom(msg.RoomID, notification, nil)
+
+	// Сохраняем уведомление в БД через persister
+	if client.Persister != nil {
+		client.Persister.Enqueue(notification)
+	}
 }
 
 // handleLeaveRoom обрабатывает выход клиента из комнаты
@@ -187,9 +264,25 @@ func (h *Hub) handleLeaveRoom(client *Client, msg *Message) {
 	room.RemoveClient(client)
 	client.RemoveRoom(msg.RoomID)
 
+	// Сохраняем выход в БД (асинхронно)
+	if h.Storage != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := h.Storage.RemoveRoomMember(ctx, msg.RoomID, client.UserID); err != nil {
+				log.Printf("Failed to update room member in database: %v", err)
+			}
+		}()
+	}
+
 	// Уведомляем всех в комнате о выходе пользователя
 	notification := NewUserLeftMessage(msg.RoomID, client.UserID, client.Username)
 	h.broadcastToRoom(msg.RoomID, notification, nil)
+
+	// Сохраняем уведомление в БД через persister
+	if client.Persister != nil {
+		client.Persister.Enqueue(notification)
+	}
 
 	// Удаляем комнату, если она пуста
 	if room.IsEmpty() {
@@ -214,6 +307,11 @@ func (h *Hub) handleChatMessage(client *Client, msg *Message) {
 
 	// Отправляем сообщение в комнату
 	h.broadcastToRoom(msg.RoomID, msg, nil)
+
+	// Асинхронно сохраняем сообщение через persister (не блокируем broadcast)
+	if client.Persister != nil {
+		client.Persister.Enqueue(msg)
+	}
 }
 
 // handlePrivateMessage обрабатывает приватное сообщение
@@ -240,6 +338,11 @@ func (h *Hub) handlePrivateMessage(client *Client, msg *Message) {
 
 	// Отправляем сообщение получателю
 	recipient.SendMessage(msg)
+
+	// Асинхронно сохраняем сообщение через persister (не блокируем отправку)
+	if client.Persister != nil {
+		client.Persister.Enqueue(msg)
+	}
 
 	// Отправляем подтверждение отправителю (опционально)
 	log.Printf("Private message from %s to %s delivered", client.UserID, msg.ToUserID)

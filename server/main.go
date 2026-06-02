@@ -1,46 +1,72 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
 
 	"github.com/theRTima/rt-chat/handlers"
 	"github.com/theRTima/rt-chat/models"
+	"github.com/theRTima/rt-chat/storage"
 )
 
 func main() {
-	// Парсим флаги командной строки
 	addr := flag.String("addr", ":8080", "HTTP service address")
 	flag.Parse()
 
-	// Создаем hub для управления клиентами
-	hub := models.NewHub()
+	ctx := context.Background()
 
-	// Запускаем hub в отдельной goroutine
+	db, err := storage.NewDB(ctx)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.InitSchema(ctx); err != nil {
+		log.Fatalf("Failed to initialize database schema: %v", err)
+	}
+
+	persister := storage.NewMessagePersister(db, 1024, 50, 3, 2*time.Second)
+	persister.Start()
+
+	hub := models.NewHub(db)
+
 	go hub.Run()
 
-	// Настраиваем HTTP routes
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		handlers.ServeWs(hub, w, r)
+		handlers.ServeWs(hub, persister, w, r)
 	})
 
-	// Простой health check endpoint
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 
-	// Endpoint для получения количества подключенных клиентов
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		count := hub.GetClientCount()
-		w.Write([]byte("{\"clients\": " + string(rune(count+'0')) + "}"))
+		w.Write([]byte(`{"clients": ` + strconv.Itoa(count) + `}`))
 	})
 
-	// Запускаем HTTP сервер
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		log.Println("Shutting down...")
+		persister.Stop()
+		db.Close()
+		os.Exit(0)
+	}()
+
 	log.Printf("Starting server on %s", *addr)
-	err := http.ListenAndServe(*addr, nil)
+	err = http.ListenAndServe(*addr, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe error: ", err)
 	}

@@ -1,21 +1,8 @@
 # rt-chat
-chat system with websocket and rooms
 
-# Вариант 30. Чат-система с WebSocket и комнатами
-Предметная область: Коммуникации
+Чат-система с WebSocket и комнатами. Высоконагруженный чат-сервер на Go (goroutine на каждое соединение) с персистентностью в PostgreSQL.
 
-Технологии: Go + WebSocket + React
-
-Описание: Высоконагруженный чат-сервер на Go (горутины на каждое
-соединение). 
-
-Поддержка комнат, приватных сообщений, истории, push-
-уведомлений. 
-
-Веб-клиент на React. Тестирование под нагрузкой до 10K
-одновременных соединений [ЛР №13].
-
----
+Технологии: Go + WebSocket + React + PostgreSQL
 
 ## Архитектура
 
@@ -23,22 +10,31 @@ chat system with websocket and rooms
 
 Проект использует классическую архитектуру Hub-and-Spoke для управления WebSocket соединениями:
 
-- **Hub** - центральный координатор, управляет всеми активными клиентами
-- **Client** - представляет одно WebSocket соединение с двумя goroutines (readPump и writePump)
-- **Каналы** - обеспечивают thread-safe коммуникацию между компонентами
+- **Hub** -- центральный координатор, управляет всеми активными клиентами
+- **Client** -- представляет одно WebSocket соединение с двумя goroutine (readPump и writePump)
+- **Каналы** -- обеспечивают thread-safe коммуникацию между компонентами
+- **Storage** -- интерфейс для работы с PostgreSQL через pgxpool
 
 ### Структура проекта
 
 ```
 server/
-├── main.go              # Точка входа, HTTP сервер
-├── models/
-│   ├── hub.go          # Hub для управления клиентами и комнатами
-│   ├── client.go       # Client с read/write goroutines
-│   ├── room.go         # Room для управления группой клиентов
-│   └── message.go      # Структуры сообщений и протокол
-└── handlers/
-    └── websocket.go    # WebSocket upgrade handler
+  main.go              # Точка входа, HTTP сервер
+  models/
+    hub.go             # Hub для управления клиентами и комнатами
+    client.go          # Client с read/write goroutine
+    room.go            # Room для управления группой клиентов
+    message.go         # Структуры сообщений и протокол
+    user.go            # Модель пользователя для БД
+  handlers/
+    websocket.go       # WebSocket upgrade handler
+  storage/
+    database.go        # Подключение к PostgreSQL (pgxpool)
+    repository.go      # Все методы запросов к БД
+    persister.go       # Асинхронное сохранение сообщений (worker pool)
+db/
+  migrations/
+    001_initial_schema.sql  # SQL схема базы данных
 ```
 
 ### Компоненты
@@ -47,10 +43,10 @@ server/
 
 Hub управляет всеми активными соединениями, комнатами и маршрутизацией сообщений через каналы:
 
-- `Register chan *Client` - регистрация новых клиентов
-- `Unregister chan *Client` - отключение клиентов
-- `Message chan *ClientMessage` - обработка входящих сообщений
-- `Broadcast chan []byte` - рассылка сообщений всем клиентам (legacy)
+- `Register chan *Client` -- регистрация новых клиентов
+- `Unregister chan *Client` -- отключение клиентов
+- `Message chan *ClientMessage` -- обработка входящих сообщений
+- `Broadcast chan []byte` -- рассылка сообщений всем клиентам (legacy)
 
 Hub также управляет:
 - Картой клиентов по UserID для приватных сообщений
@@ -62,38 +58,38 @@ Hub также управляет:
 #### Room (models/room.go)
 
 Room представляет чат-комнату с группой клиентов:
-- Добавление/удаление клиентов
+- Добавление и удаление клиентов
 - Broadcast сообщений всем участникам комнаты
 - Thread-safe операции с использованием `sync.RWMutex`
 
 #### Message (models/message.go)
 
 Структура JSON протокола для всех типов сообщений:
-- `join_room` - присоединение к комнате
-- `leave_room` - выход из комнаты
-- `chat` - сообщение в комнату
-- `private` - приватное сообщение пользователю
-- `error` - сообщение об ошибке
-- `user_joined` - уведомление о входе пользователя
-- `user_left` - уведомление о выходе пользователя
+- `join_room` -- присоединение к комнате
+- `leave_room` -- выход из комнаты
+- `chat` -- сообщение в комнату
+- `private` -- приватное сообщение пользователю
+- `error` -- сообщение об ошибке
+- `user_joined` -- уведомление о входе пользователя
+- `user_left` -- уведомление о выходе пользователя
 
 #### Client (models/client.go)
 
 Каждый клиент имеет два goroutine:
 
-- **ReadPump** - читает JSON сообщения из WebSocket, парсит их и отправляет в Hub.Message для обработки
-- **WritePump** - читает из канала Send и отправляет в WebSocket
+- **ReadPump** -- читает JSON сообщения из WebSocket, парсит их и отправляет в Hub.Message для обработки
+- **WritePump** -- читает из канала Send и отправляет в WebSocket
 
 Параметры производительности:
-- `writeWait: 10s` - таймаут записи
-- `pongWait: 60s` - таймаут ожидания pong от клиента
-- `pingPeriod: 54s` - интервал ping сообщений
-- `maxMessageSize: 8192 bytes` - максимальный размер сообщения
+- `writeWait: 10s` -- таймаут записи
+- `pongWait: 60s` -- таймаут ожидания pong от клиента
+- `pingPeriod: 54s` -- интервал ping сообщений
+- `maxMessageSize: 8192 bytes` -- максимальный размер сообщения
 
 Клиент хранит:
 - `UserID` и `Username` для идентификации
 - Карту комнат, в которых он состоит
-- Thread-safe методы для управления комнатами
+- Ссылку на `MessagePersister` для асинхронного сохранения сообщений
 
 #### WebSocket Handler (handlers/websocket.go)
 
@@ -102,17 +98,41 @@ Room представляет чат-комнату с группой клиен
 1. Принимает HTTP запрос на `/ws?user_id=<id>&username=<name>`
 2. Проверяет обязательные параметры (user_id)
 3. Апгрейдит соединение до WebSocket
-4. Создает нового Client с UserID и Username
+4. Создает нового Client с UserID, Username и Persister
 5. Регистрирует Client в Hub
-6. Запускает ReadPump и WritePump goroutines
+6. Запускает ReadPump и WritePump goroutine
 
 ### Thread Safety
 
 Проект обеспечивает безопасность при конкурентном доступе:
 
-- **Каналы** - основной механизм коммуникации между goroutines
-- **sync.RWMutex** - защита карты клиентов в Hub и Room
-- **Отдельные goroutines** - каждый Client имеет выделенные reader и writer goroutines
+- **Каналы** -- основной механизм коммуникации между goroutine
+- **sync.RWMutex** -- защита карты клиентов в Hub и Room
+- **Отдельные goroutine** -- каждый Client имеет выделенные reader и writer goroutine
+- **Неблокирующие операции** -- Enqueue использует select с default для избежания блокировки broadcast
+
+### Персистентность (PostgreSQL)
+
+#### Схема базы данных
+
+- **users** -- хранение пользователей (user_id, username, created_at, last_seen)
+- **rooms** -- хранение комнат (room_id, name, created_at)
+- **messages** -- хранение сообщений с индексами по room_id, user_id, to_user_id
+- **room_members** -- отслеживание участников комнат с поддержкой истории входов/выходов
+
+#### Асинхронная запись сообщений
+
+Система использует паттерн worker pool для асинхронного сохранения сообщений:
+
+- Буферизированный канал (capacity: 1024) для очереди сообщений
+- 3 worker, которые собирают сообщения в батчи по 50 штук
+- Принудительный сброс батча каждые 2 секунды (даже если батч не полон)
+- При заполнении очереди новые сообщения отбрасываются (не блокируют broadcast)
+- Graceful shutdown с сохранением оставшихся сообщений
+
+#### История сообщений
+
+При подключении к комнате клиент автоматически получает последние 50 сообщений через WebSocket. Сообщения фильтруются по типу (chat, user_joined, user_left) и возвращаются в хронологическом порядке.
 
 ## Протокол WebSocket сообщений
 
@@ -125,8 +145,8 @@ ws://localhost:8080/ws?user_id=user123&username=John
 ```
 
 Параметры:
-- `user_id` (обязательный) - уникальный идентификатор пользователя
-- `username` (опциональный) - имя для отображения (по умолчанию: User_<user_id>)
+- `user_id` (обязательный) -- уникальный идентификатор пользователя
+- `username` (опциональный) -- имя для отображения (по умолчанию: User_<user_id>)
 
 ### Типы сообщений
 
@@ -246,6 +266,21 @@ type Message struct {
 
 ## Запуск сервера
 
+### Требования
+
+- Go 1.26+
+- PostgreSQL (доступный по `DATABASE_URL` или на localhost:5432)
+
+### Настройка базы данных
+
+```bash
+createdb rtchat
+```
+
+### Переменные окружения
+
+- `DATABASE_URL` -- строка подключения к PostgreSQL (по умолчанию: `postgres://postgres:postgres@localhost:5432/rtchat?sslmode=disable`)
+
 ### Сборка
 
 ```bash
@@ -263,9 +298,9 @@ go build -o bin/server .
 
 ### Endpoints
 
-- `ws://localhost:8080/ws?user_id=<id>&username=<name>` - WebSocket endpoint для подключения клиентов
-- `http://localhost:8080/health` - health check endpoint
-- `http://localhost:8080/stats` - информация о количестве подключенных клиентов
+- `ws://localhost:8080/ws?user_id=<id>&username=<name>` -- WebSocket endpoint для подключения клиентов
+- `http://localhost:8080/health` -- health check endpoint
+- `http://localhost:8080/stats` -- информация о количестве подключенных клиентов
 
 ### Тестирование
 
@@ -278,7 +313,7 @@ brew install websocat
 # Подключение первого пользователя
 websocat "ws://localhost:8080/ws?user_id=alice&username=Alice"
 
-# В другом терминале - второй пользователь
+# В другом терминале -- второй пользователь
 websocat "ws://localhost:8080/ws?user_id=bob&username=Bob"
 ```
 
@@ -330,19 +365,22 @@ websocat "ws://localhost:8080/ws?user_id=bob&username=Bob"
 {"type": "chat", "room_id": "general", "content": "Anyone here?"}
 ```
 
-Сообщения Alice видны только в комнате `dev-team`, сообщения Bob - только в `general`.
+Сообщения Alice видны только в комнате `dev-team`, сообщения Bob -- только в `general`.
 
 ## Текущий статус
 
 - [x] Базовая Hub-and-Spoke архитектура
 - [x] WebSocket handler с upgrade
-- [x] Client с readPump и writePump goroutines
+- [x] Client с readPump и writePump goroutine
 - [x] Thread-safe управление соединениями
 - [x] Система комнат (rooms)
 - [x] Приватные сообщения между пользователями
 - [x] JSON протокол для всех типов сообщений
 - [x] Маршрутизация сообщений по комнатам и пользователям
 - [x] Уведомления о входе/выходе пользователей
-- [ ] Персистентность (PostgreSQL)
-- [ ] React frontend
+- [x] Персистентность (PostgreSQL)
+- [x] Схема базы данных (users, rooms, messages, room_members)
+- [x] Асинхронное сохранение сообщений (worker pool, batch inserts)
+- [x] История сообщений (последние 50 при входе в комнату)
+- [ ] Frontend на React
 - [ ] Нагрузочное тестирование (10K соединений)

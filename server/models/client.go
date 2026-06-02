@@ -50,6 +50,9 @@ type Client struct {
 
 	// Mutex для защиты rooms map
 	roomsMu sync.RWMutex
+
+	// Persister для асинхронного сохранения сообщений
+	Persister MessagePersister
 }
 
 // ReadPump читает сообщения из WebSocket соединения и отправляет их в hub

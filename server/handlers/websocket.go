@@ -20,7 +20,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // ServeWs обрабатывает WebSocket запросы от клиентов
-func ServeWs(hub *models.Hub, w http.ResponseWriter, r *http.Request) {
+func ServeWs(hub *models.Hub, persister models.MessagePersister, w http.ResponseWriter, r *http.Request) {
 	// Получаем параметры из query string
 	userID := r.URL.Query().Get("user_id")
 	username := r.URL.Query().Get("username")
@@ -43,11 +43,12 @@ func ServeWs(hub *models.Hub, w http.ResponseWriter, r *http.Request) {
 
 	// Создаем нового клиента
 	client := &models.Client{
-		Hub:      hub,
-		Conn:     conn,
-		Send:     make(chan []byte, 256),
-		UserID:   userID,
-		Username: username,
+		Hub:       hub,
+		Conn:      conn,
+		Send:      make(chan []byte, 256),
+		UserID:    userID,
+		Username:  username,
+		Persister: persister,
 	}
 
 	// Регистрируем клиента в hub
