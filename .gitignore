@@ -27,6 +27,9 @@ vendor/
 *~
 .DS_Store
 
+# Claude Code
+.claude/
+
 # Environment variables
 .env
 .env.local
