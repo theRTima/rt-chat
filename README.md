@@ -33,8 +33,10 @@ chat system with websocket and rooms
 server/
 ├── main.go              # Точка входа, HTTP сервер
 ├── models/
-│   ├── hub.go          # Hub для управления клиентами
-│   └── client.go       # Client с read/write goroutines
+│   ├── hub.go          # Hub для управления клиентами и комнатами
+│   ├── client.go       # Client с read/write goroutines
+│   ├── room.go         # Room для управления группой клиентов
+│   └── message.go      # Структуры сообщений и протокол
 └── handlers/
     └── websocket.go    # WebSocket upgrade handler
 ```
@@ -43,44 +45,204 @@ server/
 
 #### Hub (models/hub.go)
 
-Hub управляет всеми активными соединениями и обрабатывает три типа операций через каналы:
+Hub управляет всеми активными соединениями, комнатами и маршрутизацией сообщений через каналы:
 
 - `Register chan *Client` - регистрация новых клиентов
 - `Unregister chan *Client` - отключение клиентов
-- `Broadcast chan []byte` - рассылка сообщений всем клиентам
+- `Message chan *ClientMessage` - обработка входящих сообщений
+- `Broadcast chan []byte` - рассылка сообщений всем клиентам (legacy)
+
+Hub также управляет:
+- Картой клиентов по UserID для приватных сообщений
+- Картой комнат (Room) для группового общения
+- Автоматическим удалением пустых комнат
 
 Использует `sync.RWMutex` для защиты карты клиентов от race conditions.
+
+#### Room (models/room.go)
+
+Room представляет чат-комнату с группой клиентов:
+- Добавление/удаление клиентов
+- Broadcast сообщений всем участникам комнаты
+- Thread-safe операции с использованием `sync.RWMutex`
+
+#### Message (models/message.go)
+
+Структура JSON протокола для всех типов сообщений:
+- `join_room` - присоединение к комнате
+- `leave_room` - выход из комнаты
+- `chat` - сообщение в комнату
+- `private` - приватное сообщение пользователю
+- `error` - сообщение об ошибке
+- `user_joined` - уведомление о входе пользователя
+- `user_left` - уведомление о выходе пользователя
 
 #### Client (models/client.go)
 
 Каждый клиент имеет два goroutine:
 
-- **ReadPump** - читает сообщения из WebSocket и отправляет в Hub.Broadcast
+- **ReadPump** - читает JSON сообщения из WebSocket, парсит их и отправляет в Hub.Message для обработки
 - **WritePump** - читает из канала Send и отправляет в WebSocket
 
 Параметры производительности:
 - `writeWait: 10s` - таймаут записи
 - `pongWait: 60s` - таймаут ожидания pong от клиента
 - `pingPeriod: 54s` - интервал ping сообщений
-- `maxMessageSize: 512 bytes` - максимальный размер сообщения
+- `maxMessageSize: 8192 bytes` - максимальный размер сообщения
+
+Клиент хранит:
+- `UserID` и `Username` для идентификации
+- Карту комнат, в которых он состоит
+- Thread-safe методы для управления комнатами
 
 #### WebSocket Handler (handlers/websocket.go)
 
 Обрабатывает HTTP запросы и апгрейдит их до WebSocket:
 
-1. Принимает HTTP запрос на `/ws`
-2. Апгрейдит соединение до WebSocket
-3. Создает нового Client
-4. Регистрирует Client в Hub
-5. Запускает ReadPump и WritePump goroutines
+1. Принимает HTTP запрос на `/ws?user_id=<id>&username=<name>`
+2. Проверяет обязательные параметры (user_id)
+3. Апгрейдит соединение до WebSocket
+4. Создает нового Client с UserID и Username
+5. Регистрирует Client в Hub
+6. Запускает ReadPump и WritePump goroutines
 
 ### Thread Safety
 
 Проект обеспечивает безопасность при конкурентном доступе:
 
 - **Каналы** - основной механизм коммуникации между goroutines
-- **sync.RWMutex** - защита карты клиентов в Hub
+- **sync.RWMutex** - защита карты клиентов в Hub и Room
 - **Отдельные goroutines** - каждый Client имеет выделенные reader и writer goroutines
+
+## Протокол WebSocket сообщений
+
+Все сообщения передаются в JSON формате.
+
+### Подключение к серверу
+
+```
+ws://localhost:8080/ws?user_id=user123&username=John
+```
+
+Параметры:
+- `user_id` (обязательный) - уникальный идентификатор пользователя
+- `username` (опциональный) - имя для отображения (по умолчанию: User_<user_id>)
+
+### Типы сообщений
+
+#### 1. Присоединение к комнате (join_room)
+
+**Отправка клиентом:**
+```json
+{
+  "type": "join_room",
+  "room_id": "general"
+}
+```
+
+**Получение всеми в комнате:**
+```json
+{
+  "type": "user_joined",
+  "room_id": "general",
+  "user_id": "user123",
+  "username": "John",
+  "timestamp": "2026-06-02T20:00:00Z"
+}
+```
+
+#### 2. Выход из комнаты (leave_room)
+
+**Отправка клиентом:**
+```json
+{
+  "type": "leave_room",
+  "room_id": "general"
+}
+```
+
+**Получение всеми в комнате:**
+```json
+{
+  "type": "user_left",
+  "room_id": "general",
+  "user_id": "user123",
+  "username": "John",
+  "timestamp": "2026-06-02T20:05:00Z"
+}
+```
+
+#### 3. Сообщение в комнату (chat)
+
+**Отправка клиентом:**
+```json
+{
+  "type": "chat",
+  "room_id": "general",
+  "content": "Hello everyone!"
+}
+```
+
+**Получение всеми в комнате:**
+```json
+{
+  "type": "chat",
+  "room_id": "general",
+  "user_id": "user123",
+  "username": "John",
+  "content": "Hello everyone!",
+  "timestamp": "2026-06-02T20:10:00Z"
+}
+```
+
+#### 4. Приватное сообщение (private)
+
+**Отправка клиентом:**
+```json
+{
+  "type": "private",
+  "to_user_id": "user456",
+  "content": "Hi there!"
+}
+```
+
+**Получение получателем:**
+```json
+{
+  "type": "private",
+  "user_id": "user123",
+  "username": "John",
+  "to_user_id": "user456",
+  "content": "Hi there!",
+  "timestamp": "2026-06-02T20:15:00Z"
+}
+```
+
+#### 5. Сообщение об ошибке (error)
+
+**Получение при ошибке:**
+```json
+{
+  "type": "error",
+  "error": "Room ID is required",
+  "timestamp": "2026-06-02T20:20:00Z"
+}
+```
+
+### Структура Message
+
+```go
+type Message struct {
+    Type      string    `json:"type"`              // Тип сообщения
+    RoomID    string    `json:"room_id,omitempty"` // ID комнаты
+    UserID    string    `json:"user_id,omitempty"` // ID отправителя
+    Username  string    `json:"username,omitempty"`// Имя отправителя
+    ToUserID  string    `json:"to_user_id,omitempty"` // ID получателя (для private)
+    Content   string    `json:"content,omitempty"` // Содержимое
+    Timestamp time.Time `json:"timestamp"`         // Временная метка
+    Error     string    `json:"error,omitempty"`   // Текст ошибки
+}
+```
 
 ## Запуск сервера
 
@@ -101,39 +263,74 @@ go build -o bin/server .
 
 ### Endpoints
 
-- `ws://localhost:8080/ws` - WebSocket endpoint для подключения клиентов
+- `ws://localhost:8080/ws?user_id=<id>&username=<name>` - WebSocket endpoint для подключения клиентов
 - `http://localhost:8080/health` - health check endpoint
 - `http://localhost:8080/stats` - информация о количестве подключенных клиентов
 
 ### Тестирование
 
-Простой тест с помощью websocat:
+Тестирование с помощью websocat:
 
 ```bash
 # Установка websocat (если еще не установлен)
 brew install websocat
 
-# Подключение к серверу
-websocat ws://localhost:8080/ws
+# Подключение первого пользователя
+websocat "ws://localhost:8080/ws?user_id=alice&username=Alice"
 
-# Теперь можно отправлять сообщения
-# Они будут broadcast всем подключенным клиентам
+# В другом терминале - второй пользователь
+websocat "ws://localhost:8080/ws?user_id=bob&username=Bob"
 ```
 
-Тест с несколькими клиентами:
+#### Пример 1: Общение в комнате
 
-```bash
-# Терминал 1
-websocat ws://localhost:8080/ws
-
-# Терминал 2
-websocat ws://localhost:8080/ws
-
-# Терминал 3
-websocat ws://localhost:8080/ws
-
-# Отправьте сообщение из любого терминала - оно появится во всех остальных
+**Терминал Alice:**
+```json
+{"type": "join_room", "room_id": "general"}
 ```
+
+**Терминал Bob:**
+```json
+{"type": "join_room", "room_id": "general"}
+```
+
+**Alice отправляет сообщение:**
+```json
+{"type": "chat", "room_id": "general", "content": "Hello everyone!"}
+```
+
+**Bob получает:**
+```json
+{"type":"chat","room_id":"general","user_id":"alice","username":"Alice","content":"Hello everyone!","timestamp":"2026-06-02T20:30:00Z"}
+```
+
+#### Пример 2: Приватное сообщение
+
+**Alice отправляет Bob:**
+```json
+{"type": "private", "to_user_id": "bob", "content": "Hi Bob, this is private!"}
+```
+
+**Bob получает:**
+```json
+{"type":"private","user_id":"alice","username":"Alice","to_user_id":"bob","content":"Hi Bob, this is private!","timestamp":"2026-06-02T20:35:00Z"}
+```
+
+#### Пример 3: Несколько комнат
+
+**Alice:**
+```json
+{"type": "join_room", "room_id": "dev-team"}
+{"type": "chat", "room_id": "dev-team", "content": "Meeting in 5 minutes"}
+```
+
+**Bob (в другой комнате):**
+```json
+{"type": "join_room", "room_id": "general"}
+{"type": "chat", "room_id": "general", "content": "Anyone here?"}
+```
+
+Сообщения Alice видны только в комнате `dev-team`, сообщения Bob - только в `general`.
 
 ## Текущий статус
 
@@ -141,9 +338,11 @@ websocat ws://localhost:8080/ws
 - [x] WebSocket handler с upgrade
 - [x] Client с readPump и writePump goroutines
 - [x] Thread-safe управление соединениями
-- [x] Broadcast сообщений всем клиентам
-- [ ] Система комнат (rooms)
-- [ ] Приватные сообщения
+- [x] Система комнат (rooms)
+- [x] Приватные сообщения между пользователями
+- [x] JSON протокол для всех типов сообщений
+- [x] Маршрутизация сообщений по комнатам и пользователям
+- [x] Уведомления о входе/выходе пользователей
 - [ ] Персистентность (PostgreSQL)
 - [ ] React frontend
 - [ ] Нагрузочное тестирование (10K соединений)

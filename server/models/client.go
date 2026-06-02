@@ -1,7 +1,9 @@
 package models
 
 import (
+	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -17,8 +19,8 @@ const (
 	// Интервал отправки ping сообщений клиенту (должен быть меньше pongWait)
 	pingPeriod = (pongWait * 9) / 10
 
-	// Максимальный размер сообщения
-	maxMessageSize = 512
+	// Максимальный размер сообщения (увеличено для JSON)
+	maxMessageSize = 8192
 )
 
 var (
@@ -37,8 +39,17 @@ type Client struct {
 	// Буферизованный канал исходящих сообщений
 	Send chan []byte
 
-	// ID пользователя (можно расширить для авторизации)
-	ID string
+	// ID пользователя
+	UserID string
+
+	// Имя пользователя для отображения
+	Username string
+
+	// Комнаты, в которых находится клиент
+	rooms map[string]bool
+
+	// Mutex для защиты rooms map
+	roomsMu sync.RWMutex
 }
 
 // ReadPump читает сообщения из WebSocket соединения и отправляет их в hub
@@ -61,7 +72,7 @@ func (c *Client) ReadPump() {
 
 	// Бесконечный цикл чтения сообщений
 	for {
-		_, message, err := c.Conn.ReadMessage()
+		_, data, err := c.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error: %v", err)
@@ -69,8 +80,20 @@ func (c *Client) ReadPump() {
 			break
 		}
 
-		// Отправляем полученное сообщение в hub для broadcast
-		c.Hub.Broadcast <- message
+		// Парсим JSON сообщение
+		var msg Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			log.Printf("Error unmarshaling message: %v", err)
+			errMsg := NewErrorMessage("Invalid message format")
+			c.SendMessage(errMsg)
+			continue
+		}
+
+		// Отправляем сообщение в hub для обработки
+		c.Hub.Message <- &ClientMessage{
+			Client:  c,
+			Message: &msg,
+		}
 	}
 }
 
@@ -120,4 +143,45 @@ func (c *Client) WritePump() {
 			}
 		}
 	}
+}
+
+// SendMessage отправляет структурированное сообщение клиенту
+func (c *Client) SendMessage(msg *Message) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Error marshaling message: %v", err)
+		return
+	}
+
+	select {
+	case c.Send <- data:
+		// Сообщение отправлено
+	default:
+		// Канал заполнен
+		log.Printf("Client %s send channel full", c.UserID)
+	}
+}
+
+// AddRoom добавляет клиента в комнату
+func (c *Client) AddRoom(roomID string) {
+	c.roomsMu.Lock()
+	defer c.roomsMu.Unlock()
+	if c.rooms == nil {
+		c.rooms = make(map[string]bool)
+	}
+	c.rooms[roomID] = true
+}
+
+// RemoveRoom удаляет клиента из комнаты
+func (c *Client) RemoveRoom(roomID string) {
+	c.roomsMu.Lock()
+	defer c.roomsMu.Unlock()
+	delete(c.rooms, roomID)
+}
+
+// IsInRoom проверяет, находится ли клиент в комнате
+func (c *Client) IsInRoom(roomID string) bool {
+	c.roomsMu.RLock()
+	defer c.roomsMu.RUnlock()
+	return c.rooms[roomID]
 }

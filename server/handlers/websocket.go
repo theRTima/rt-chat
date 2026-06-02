@@ -21,6 +21,19 @@ var upgrader = websocket.Upgrader{
 
 // ServeWs обрабатывает WebSocket запросы от клиентов
 func ServeWs(hub *models.Hub, w http.ResponseWriter, r *http.Request) {
+	// Получаем параметры из query string
+	userID := r.URL.Query().Get("user_id")
+	username := r.URL.Query().Get("username")
+
+	if userID == "" {
+		http.Error(w, "user_id is required", http.StatusBadRequest)
+		return
+	}
+
+	if username == "" {
+		username = "User_" + userID
+	}
+
 	// Апгрейдим HTTP соединение до WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -30,9 +43,11 @@ func ServeWs(hub *models.Hub, w http.ResponseWriter, r *http.Request) {
 
 	// Создаем нового клиента
 	client := &models.Client{
-		Hub:  hub,
-		Conn: conn,
-		Send: make(chan []byte, 256),
+		Hub:      hub,
+		Conn:     conn,
+		Send:     make(chan []byte, 256),
+		UserID:   userID,
+		Username: username,
 	}
 
 	// Регистрируем клиента в hub
