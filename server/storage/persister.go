@@ -50,8 +50,9 @@ func (mp *MessagePersister) Start() {
 // Stop останавливает все workers и закрывает каналы
 func (mp *MessagePersister) Stop() {
 	log.Printf("Stopping message persister...")
-	mp.cancel()
+	// Закрываем очередь первой, чтобы workers дочитали оставшиеся сообщения
 	close(mp.messageQueue)
+	mp.cancel()
 	mp.wg.Wait()
 	log.Printf("Message persister stopped")
 }

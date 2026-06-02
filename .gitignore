@@ -1,0 +1,58 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+server/bin/
+bin/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# Build artifacts
+dist/
+build/
+
+# Node modules (for future React frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# React build
+client/build/
+client/dist/
+
+# Temporary files
+tmp/
+temp/
