@@ -110,6 +110,14 @@ func (h *Hub) Run() {
 					room.RemoveClient(client)
 				}
 
+				// Удаляем пустые комнаты
+				for id, room := range h.rooms {
+					if room.IsEmpty() {
+						delete(h.rooms, id)
+						log.Printf("Deleted empty room: %s", id)
+					}
+				}
+
 				// Удаляем клиента из общих карт
 				delete(h.clients, client)
 				if client.UserID != "" {
@@ -260,6 +268,12 @@ func (h *Hub) handleLeaveRoom(client *Client, msg *Message) {
 		return
 	}
 
+	// Создаем уведомление до удаления клиента из комнаты
+	notification := NewUserLeftMessage(msg.RoomID, client.UserID, client.Username)
+
+	// Отправляем уведомление выходящему клиенту напрямую
+	client.SendMessage(notification)
+
 	// Удаляем клиента из комнаты
 	room.RemoveClient(client)
 	client.RemoveRoom(msg.RoomID)
@@ -275,9 +289,8 @@ func (h *Hub) handleLeaveRoom(client *Client, msg *Message) {
 		}()
 	}
 
-	// Уведомляем всех в комнате о выходе пользователя
-	notification := NewUserLeftMessage(msg.RoomID, client.UserID, client.Username)
-	h.broadcastToRoom(msg.RoomID, notification, nil)
+	// Уведомляем остальных в комнате о выходе пользователя
+	h.broadcastToRoom(msg.RoomID, notification, client)
 
 	// Сохраняем уведомление в БД через persister
 	if client.Persister != nil {

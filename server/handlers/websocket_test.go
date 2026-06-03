@@ -5,17 +5,48 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/theRTima/rt-chat/models"
-	"github.com/theRTima/rt-chat/storage"
 )
 
-func setupTestServer() (*httptest.Server, *models.Hub, *storage.MockPersister) {
-	mockStorage := storage.NewMockStorage()
-	mockPersister := storage.NewMockPersister()
+// msgBuffer handles WritePump batching where multiple JSON messages
+// may arrive in a single WebSocket frame separated by \n
+var (
+	msgBufMu sync.Mutex
+	msgBufs  = make(map[*websocket.Conn][]*models.Message)
+)
+
+func getBufferedMessage(ws *websocket.Conn) *models.Message {
+	msgBufMu.Lock()
+	defer msgBufMu.Unlock()
+	buf := msgBufs[ws]
+	if len(buf) == 0 {
+		return nil
+	}
+	msg := buf[0]
+	msgBufs[ws] = buf[1:]
+	return msg
+}
+
+func addBufferedMessages(ws *websocket.Conn, msgs []*models.Message) {
+	msgBufMu.Lock()
+	defer msgBufMu.Unlock()
+	msgBufs[ws] = append(msgBufs[ws], msgs...)
+}
+
+func cleanupBuffers(ws *websocket.Conn) {
+	msgBufMu.Lock()
+	defer msgBufMu.Unlock()
+	delete(msgBufs, ws)
+}
+
+func setupTestServer() (*httptest.Server, *models.Hub, *models.MockPersister) {
+	mockStorage := models.NewMockStorage()
+	mockPersister := models.NewMockPersister()
 	hub := models.NewHub(mockStorage)
 
 	go hub.Run()
@@ -52,19 +83,43 @@ func sendMessage(t *testing.T, ws *websocket.Conn, msg *models.Message) {
 }
 
 func receiveMessage(t *testing.T, ws *websocket.Conn, timeout time.Duration) *models.Message {
-	ws.SetReadDeadline(time.Now().Add(timeout))
+	t.Helper()
 
+	// Check buffer first
+	if msg := getBufferedMessage(ws); msg != nil {
+		return msg
+	}
+
+	ws.SetReadDeadline(time.Now().Add(timeout))
 	_, data, err := ws.ReadMessage()
 	if err != nil {
 		t.Fatalf("Failed to read message: %v", err)
 	}
 
-	var msg models.Message
-	if err := json.Unmarshal(data, &msg); err != nil {
-		t.Fatalf("Failed to unmarshal message: %v", err)
+	// Handle WritePump batching: split frame by \n and parse each JSON
+	var msgs []*models.Message
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var msg models.Message
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			t.Fatalf("Failed to unmarshal message: %v", err)
+		}
+		msgs = append(msgs, &msg)
 	}
 
-	return &msg
+	if len(msgs) == 0 {
+		t.Fatal("No messages found in frame")
+	}
+
+	// Buffer extras for next calls
+	if len(msgs) > 1 {
+		addBufferedMessages(ws, msgs[1:])
+	}
+
+	return msgs[0]
 }
 
 func TestWebSocketConnection(t *testing.T) {
@@ -133,19 +188,34 @@ func TestWebSocketChatMessage(t *testing.T) {
 	defer ws2.Close()
 
 	// Both join the same room
-	joinMsg := &models.Message{
+	sendMessage(t, ws1, &models.Message{
 		Type:   models.MessageTypeJoinRoom,
 		RoomID: "test_room",
+	})
+	// Wait for alice's join notification before bob joins
+	receiveMessage(t, ws1, 1*time.Second)
+
+	sendMessage(t, ws2, &models.Message{
+		Type:   models.MessageTypeJoinRoom,
+		RoomID: "test_room",
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	// Drain all remaining join notifications from both clients
+	for _, ws := range []*websocket.Conn{ws1, ws2} {
+		for getBufferedMessage(ws) != nil {
+		}
+		// Read and discard any pending WebSocket frames (batched join notifications)
+		ws.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		for {
+			_, _, err := ws.ReadMessage()
+			if err != nil {
+				break
+			}
+			ws.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		}
 	}
-
-	sendMessage(t, ws1, joinMsg)
-	sendMessage(t, ws2, joinMsg)
-
-	// Read join notifications
-	receiveMessage(t, ws1, 1*time.Second) // alice joined
-	receiveMessage(t, ws2, 1*time.Second) // alice joined
-	receiveMessage(t, ws1, 1*time.Second) // bob joined
-	receiveMessage(t, ws2, 1*time.Second) // bob joined
+	time.Sleep(50 * time.Millisecond)
 
 	// Alice sends a chat message
 	chatMsg := &models.Message{
@@ -154,6 +224,7 @@ func TestWebSocketChatMessage(t *testing.T) {
 		Content: "Hello Bob!",
 	}
 	sendMessage(t, ws1, chatMsg)
+	time.Sleep(100 * time.Millisecond)
 
 	// Both clients should receive the message
 	msg1 := receiveMessage(t, ws1, 1*time.Second)

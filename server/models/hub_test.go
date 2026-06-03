@@ -1,17 +1,14 @@
 package models
 
 import (
-	"context"
 	"encoding/json"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/theRTima/rt-chat/storage"
 )
 
 func TestHubRegisterClient(t *testing.T) {
-	mockStorage := storage.NewMockStorage()
+	mockStorage := NewMockStorage()
 	hub := NewHub(mockStorage)
 
 	// Start hub in goroutine
@@ -49,12 +46,10 @@ func TestHubRegisterClient(t *testing.T) {
 }
 
 func TestHubUnregisterClient(t *testing.T) {
-	mockStorage := storage.NewMockStorage()
+	mockStorage := NewMockStorage()
 	hub := NewHub(mockStorage)
 
 	go hub.Run()
-	defer close(hub.Register)
-
 	client := &Client{
 		Hub:      hub,
 		Send:     make(chan []byte, 256),
@@ -88,11 +83,10 @@ func TestHubUnregisterClient(t *testing.T) {
 }
 
 func TestHubBroadcast(t *testing.T) {
-	mockStorage := storage.NewMockStorage()
+	mockStorage := NewMockStorage()
 	hub := NewHub(mockStorage)
 
 	go hub.Run()
-	defer close(hub.Register)
 
 	// Create multiple clients
 	clients := make([]*Client, 3)
@@ -135,12 +129,12 @@ func TestHubBroadcast(t *testing.T) {
 }
 
 func TestHubJoinRoom(t *testing.T) {
-	mockStorage := storage.NewMockStorage()
-	mockPersister := storage.NewMockPersister()
+	mockStorage := NewMockStorage()
+	mockPersister := NewMockPersister()
 	hub := NewHub(mockStorage)
 
 	go hub.Run()
-	defer close(hub.Register)
+
 
 	client := &Client{
 		Hub:       hub,
@@ -184,12 +178,12 @@ func TestHubJoinRoom(t *testing.T) {
 }
 
 func TestHubChatMessage(t *testing.T) {
-	mockStorage := storage.NewMockStorage()
-	mockPersister := storage.NewMockPersister()
+	mockStorage := NewMockStorage()
+	mockPersister := NewMockPersister()
 	hub := NewHub(mockStorage)
 
 	go hub.Run()
-	defer close(hub.Register)
+
 
 	// Create two clients in the same room
 	client1 := &Client{
@@ -272,12 +266,12 @@ func TestHubChatMessage(t *testing.T) {
 }
 
 func TestHubPrivateMessage(t *testing.T) {
-	mockStorage := storage.NewMockStorage()
-	mockPersister := storage.NewMockPersister()
+	mockStorage := NewMockStorage()
+	mockPersister := NewMockPersister()
 	hub := NewHub(mockStorage)
 
 	go hub.Run()
-	defer close(hub.Register)
+
 
 	client1 := &Client{
 		Hub:       hub,
@@ -335,12 +329,12 @@ func TestHubPrivateMessage(t *testing.T) {
 }
 
 func TestHubLeaveRoom(t *testing.T) {
-	mockStorage := storage.NewMockStorage()
-	mockPersister := storage.NewMockPersister()
+	mockStorage := NewMockStorage()
+	mockPersister := NewMockPersister()
 	hub := NewHub(mockStorage)
 
 	go hub.Run()
-	defer close(hub.Register)
+
 
 	client := &Client{
 		Hub:       hub,
