@@ -108,14 +108,32 @@ func (db *DB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_room_members_room_id ON room_members(room_id);
 	CREATE INDEX IF NOT EXISTS idx_room_members_user_id ON room_members(user_id);
-	ALTER TABLE room_members DROP CONSTRAINT IF EXISTS room_members_room_id_user_id_left_at_key;
-	DROP INDEX IF EXISTS idx_room_members_active;
-	CREATE UNIQUE INDEX idx_room_members_active ON room_members(room_id, user_id) WHERE left_at IS NULL;
 	`
 
-	_, err := db.Pool.Exec(ctx, schema)
-	if err != nil {
+	if _, err := db.Pool.Exec(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize schema: %w", err)
+	}
+
+	// Migration: drop old unique constraint that treated NULLs as distinct
+	db.Pool.Exec(ctx, `ALTER TABLE room_members DROP CONSTRAINT IF EXISTS room_members_room_id_user_id_left_at_key`)
+
+	// Deduplicate active members before creating unique partial index
+	db.Pool.Exec(ctx, `
+		DELETE FROM room_members
+		WHERE id IN (
+			SELECT id FROM (
+				SELECT id,
+					ROW_NUMBER() OVER (PARTITION BY room_id, user_id ORDER BY joined_at DESC) as rn
+				FROM room_members
+				WHERE left_at IS NULL
+			) sub WHERE rn > 1
+		)
+	`)
+
+	// Replace old non-unique index with a unique one
+	db.Pool.Exec(ctx, `DROP INDEX IF EXISTS idx_room_members_active`)
+	if _, err := db.Pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_room_members_active ON room_members(room_id, user_id) WHERE left_at IS NULL`); err != nil {
+		log.Printf("Warning: could not create unique index (non-fatal): %v", err)
 	}
 
 	log.Printf("Database schema initialized successfully")
