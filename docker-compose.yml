@@ -29,8 +29,6 @@ services:
   frontend:
     build:
       context: ./client
-      args:
-        VITE_WS_URL: ws://localhost:8080/ws
     ports:
       - "3000:80"
     depends_on:

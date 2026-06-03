@@ -13,7 +13,6 @@ export const useChat = (roomId) => {
   const reconnectTimeoutRef = useRef(null);
   const currentRoomRef = useRef(null);
 
-  // Connect to WebSocket
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       return;
@@ -28,16 +27,6 @@ export const useChat = (roomId) => {
         setIsConnected(true);
         setIsReconnecting(false);
         reconnectAttemptsRef.current = 0;
-
-        // Join room after connection
-        if (roomId) {
-          const joinMessage = {
-            type: MESSAGE_TYPES.JOIN_ROOM,
-            room_id: roomId,
-          };
-          ws.send(JSON.stringify(joinMessage));
-          currentRoomRef.current = roomId;
-        }
       };
 
       ws.onmessage = (event) => {
@@ -58,7 +47,6 @@ export const useChat = (roomId) => {
         setIsConnected(false);
         wsRef.current = null;
 
-        // Attempt to reconnect
         if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
           setIsReconnecting(true);
           reconnectAttemptsRef.current += 1;
@@ -76,16 +64,14 @@ export const useChat = (roomId) => {
     } catch (error) {
       console.error('Failed to create WebSocket:', error);
     }
-  }, [userId, username, roomId]);
+  }, [userId, username]);
 
-  // Disconnect from WebSocket
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
     }
 
     if (wsRef.current) {
-      // Leave current room before disconnecting
       if (currentRoomRef.current) {
         const leaveMessage = {
           type: MESSAGE_TYPES.LEAVE_ROOM,
@@ -102,7 +88,6 @@ export const useChat = (roomId) => {
     setIsReconnecting(false);
   }, []);
 
-  // Send a message
   const sendMessage = useCallback((content, type = MESSAGE_TYPES.CHAT, toUserId = null) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       console.error('WebSocket is not connected');
@@ -129,13 +114,11 @@ export const useChat = (roomId) => {
     }
   }, [roomId]);
 
-  // Join a new room
   const joinRoom = useCallback((newRoomId) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       return;
     }
 
-    // Leave current room
     if (currentRoomRef.current && currentRoomRef.current !== newRoomId) {
       const leaveMessage = {
         type: MESSAGE_TYPES.LEAVE_ROOM,
@@ -144,7 +127,6 @@ export const useChat = (roomId) => {
       wsRef.current.send(JSON.stringify(leaveMessage));
     }
 
-    // Join new room
     const joinMessage = {
       type: MESSAGE_TYPES.JOIN_ROOM,
       room_id: newRoomId,
@@ -152,11 +134,9 @@ export const useChat = (roomId) => {
     wsRef.current.send(JSON.stringify(joinMessage));
     currentRoomRef.current = newRoomId;
 
-    // Clear messages when switching rooms
     setMessages([]);
   }, []);
 
-  // Connect on mount
   useEffect(() => {
     connect();
 
@@ -165,9 +145,8 @@ export const useChat = (roomId) => {
     };
   }, [connect, disconnect]);
 
-  // Handle room changes
   useEffect(() => {
-    if (isConnected && roomId && roomId !== currentRoomRef.current) {
+    if (isConnected && roomId) {
       joinRoom(roomId);
     }
   }, [roomId, isConnected, joinRoom]);

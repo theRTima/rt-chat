@@ -1,4 +1,4 @@
-export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
+export const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8080/ws`;
 
 export const MESSAGE_TYPES = {
   JOIN_ROOM: 'join_room',
