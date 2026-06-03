@@ -1,15 +1,15 @@
 .chat-room {
   display: flex;
   height: 100vh;
-  background-color: white;
+  background-color: var(--bg-app);
 }
 
 .chat-sidebar {
   width: 250px;
-  border-right: 1px solid #e5e7eb;
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  background-color: #f9fafb;
+  background-color: var(--bg-secondary);
 }
 
 .user-info {
@@ -17,19 +17,19 @@
   align-items: center;
   gap: 0.75rem;
   padding: 1rem;
-  border-bottom: 1px solid #e5e7eb;
-  background-color: white;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-elevated);
 }
 
 .user-avatar {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-blue-hover) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--text-on-primary);
   font-weight: 600;
   font-size: 1.125rem;
 }
@@ -42,20 +42,20 @@
 .user-name {
   font-weight: 600;
   font-size: 0.875rem;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .user-status {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--text-tertiary);
 }
 
 .user-status.online {
-  color: #10b981;
+  color: var(--accent-green);
 }
 
 .user-status.offline {
-  color: #ef4444;
+  color: var(--accent-red);
 }
 
 .chat-main {
@@ -69,15 +69,15 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid #e5e7eb;
-  background-color: white;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-elevated);
 }
 
 .chat-header h2 {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .connection-status {
@@ -86,9 +86,9 @@
 }
 
 .connection-status.connected {
-  color: #10b981;
+  color: var(--accent-green);
 }
 
 .connection-status.disconnected {
-  color: #ef4444;
+  color: var(--accent-red);
 }

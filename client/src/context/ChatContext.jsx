@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const ChatContext = createContext();
 
@@ -13,15 +13,28 @@ export const ChatProvider = ({ children }) => {
 
   const [currentRoom, setCurrentRoom] = useState('general');
 
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('theme') || 'light';
+  });
+
   useEffect(() => {
     localStorage.setItem('userId', userId);
     localStorage.setItem('username', username);
   }, [userId, username]);
 
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
   const updateUser = (newUserId, newUsername) => {
     setUserId(newUserId);
     setUsername(newUsername);
   };
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  }, []);
 
   return (
     <ChatContext.Provider
@@ -31,6 +44,8 @@ export const ChatProvider = ({ children }) => {
         currentRoom,
         setCurrentRoom,
         updateUser,
+        theme,
+        toggleTheme,
       }}
     >
       {children}

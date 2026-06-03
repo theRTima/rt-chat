@@ -7,7 +7,7 @@
   font-size: 0.875rem;
   font-weight: 600;
   text-transform: uppercase;
-  color: #6b7280;
+  color: var(--text-tertiary);
 }
 
 .room-list {
@@ -25,15 +25,15 @@
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-secondary);
   transition: all 0.2s;
 }
 
 .room-button:hover {
-  background-color: #f3f4f6;
+  background-color: var(--bg-hover);
 }
 
 .room-button.active {
-  background-color: #3b82f6;
-  color: white;
+  background-color: var(--accent-blue);
+  color: var(--text-on-primary);
 }

@@ -7,7 +7,7 @@ import MessageInput from './MessageInput';
 import './ChatRoom.css';
 
 const ChatRoom = () => {
-  const { currentRoom, username } = useChatContext();
+  const { currentRoom, username, theme, toggleTheme } = useChatContext();
   const { messages, isConnected, isReconnecting, sendMessage } = useChat(currentRoom);
 
   const handleSendMessage = (content) => {
@@ -32,8 +32,13 @@ const ChatRoom = () => {
       <div className="chat-main">
         <div className="chat-header">
           <h2># {currentRoom}</h2>
-          <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
-            {isConnected ? '● Подключено' : '○ Отключено'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <button className="theme-toggle" onClick={toggleTheme}>
+              {theme === 'light' ? 'Темная' : 'Светлая'}
+            </button>
+            <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
+              {isConnected ? '● Подключено' : '○ Отключено'}
+            </div>
           </div>
         </div>
 
