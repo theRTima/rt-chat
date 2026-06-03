@@ -210,6 +210,7 @@ func (db *DB) AddRoomMember(ctx context.Context, roomID, userID string) error {
 	query := `
 		INSERT INTO room_members (room_id, user_id, joined_at, left_at)
 		VALUES ($1, $2, $3, NULL)
+		ON CONFLICT (room_id, user_id) WHERE left_at IS NULL DO NOTHING
 	`
 	_, err := db.Pool.Exec(ctx, query, roomID, userID, time.Now())
 	return err

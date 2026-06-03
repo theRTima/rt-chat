@@ -103,13 +103,14 @@ func (db *DB) InitSchema(ctx context.Context) error {
 		room_id VARCHAR(255) NOT NULL,
 		user_id VARCHAR(255) NOT NULL,
 		joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-		left_at TIMESTAMP WITH TIME ZONE,
-		UNIQUE(room_id, user_id, left_at)
+		left_at TIMESTAMP WITH TIME ZONE
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_room_members_room_id ON room_members(room_id);
 	CREATE INDEX IF NOT EXISTS idx_room_members_user_id ON room_members(user_id);
-	CREATE INDEX IF NOT EXISTS idx_room_members_active ON room_members(room_id, user_id) WHERE left_at IS NULL;
+	ALTER TABLE room_members DROP CONSTRAINT IF EXISTS room_members_room_id_user_id_left_at_key;
+	DROP INDEX IF EXISTS idx_room_members_active;
+	CREATE UNIQUE INDEX idx_room_members_active ON room_members(room_id, user_id) WHERE left_at IS NULL;
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

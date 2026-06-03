@@ -32,12 +32,16 @@ export const useChat = (roomId) => {
 
       ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data);
+          const parts = event.data.split('\n');
           const gen = roomGenRef.current;
-          setMessages((prev) => {
-            if (roomGenRef.current !== gen) return prev;
-            return [...prev, message];
-          });
+          for (const part of parts) {
+            if (!part) continue;
+            const message = JSON.parse(part);
+            setMessages((prev) => {
+              if (roomGenRef.current !== gen) return prev;
+              return [...prev, message];
+            });
+          }
         } catch (error) {
           console.error('Failed to parse message:', error);
         }
@@ -51,6 +55,7 @@ export const useChat = (roomId) => {
         console.log('WebSocket disconnected');
         setIsConnected(false);
         wsRef.current = null;
+        currentRoomRef.current = null;
 
         if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
           setIsReconnecting(true);
