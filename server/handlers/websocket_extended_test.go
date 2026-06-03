@@ -270,25 +270,11 @@ func TestWebSocketMessageOrdering(t *testing.T) {
 	defer ws2.Close()
 
 	sendMessage(t, ws1, &models.Message{Type: models.MessageTypeJoinRoom, RoomID: "order_room"})
-	receiveMessage(t, ws1, 1*time.Second) // alice joined
+	receiveMessage(t, ws1, 1*time.Second) // UserJoined{alice}
 
 	sendMessage(t, ws2, &models.Message{Type: models.MessageTypeJoinRoom, RoomID: "order_room"})
-	time.Sleep(100 * time.Millisecond)
-
-	// Drain all join notifications from both clients
-	for _, ws := range []*websocket.Conn{ws1, ws2} {
-		for getBufferedMessage(ws) != nil {
-		}
-		ws.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-		for {
-			_, _, err := ws.ReadMessage()
-			if err != nil {
-				break
-			}
-			ws.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-		}
-	}
-	time.Sleep(50 * time.Millisecond)
+	receiveMessage(t, ws1, 1*time.Second) // UserJoined{bob} for alice
+	receiveMessage(t, ws2, 1*time.Second) // UserJoined{bob} echo for bob
 
 	// Send sequential messages
 	expected := []string{"msg1", "msg2", "msg3"}
@@ -299,7 +285,6 @@ func TestWebSocketMessageOrdering(t *testing.T) {
 			Content: content,
 		})
 	}
-	time.Sleep(100 * time.Millisecond)
 
 	// Verify order on both clients
 	for i, exp := range expected {
@@ -330,30 +315,16 @@ func TestWebSocketBroadcastDoesNotLeakBetweenRooms(t *testing.T) {
 
 	// Alice joins room A
 	sendMessage(t, wsA, &models.Message{Type: models.MessageTypeJoinRoom, RoomID: "room_a"})
-	receiveMessage(t, wsA, 1*time.Second) // alice joined room_a
+	receiveMessage(t, wsA, 1*time.Second) // UserJoined{alice}
 
 	// Bob joins room A
 	sendMessage(t, wsB, &models.Message{Type: models.MessageTypeJoinRoom, RoomID: "room_a"})
-	time.Sleep(100 * time.Millisecond)
-
-	// Drain bob's join + alice's notification of bob
-	for _, ws := range []*websocket.Conn{wsA, wsB} {
-		for getBufferedMessage(ws) != nil {
-		}
-		ws.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-		for {
-			_, _, err := ws.ReadMessage()
-			if err != nil {
-				break
-			}
-			ws.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-		}
-	}
-	time.Sleep(50 * time.Millisecond)
+	receiveMessage(t, wsA, 1*time.Second) // UserJoined{bob} for alice
+	receiveMessage(t, wsB, 1*time.Second) // UserJoined{bob} echo for bob
 
 	// Charlie joins room B
 	sendMessage(t, wsC, &models.Message{Type: models.MessageTypeJoinRoom, RoomID: "room_b"})
-	receiveMessage(t, wsC, 1*time.Second) // charlie joined room_b
+	receiveMessage(t, wsC, 1*time.Second) // UserJoined{charlie}
 
 	// Alice sends to room A
 	sendMessage(t, wsA, &models.Message{
@@ -361,7 +332,6 @@ func TestWebSocketBroadcastDoesNotLeakBetweenRooms(t *testing.T) {
 		RoomID:  "room_a",
 		Content: "room a secret",
 	})
-	time.Sleep(100 * time.Millisecond)
 
 	// Alice and Bob should get it
 	receiveMessage(t, wsA, 1*time.Second)

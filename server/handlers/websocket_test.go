@@ -38,11 +38,6 @@ func addBufferedMessages(ws *websocket.Conn, msgs []*models.Message) {
 	msgBufs[ws] = append(msgBufs[ws], msgs...)
 }
 
-func cleanupBuffers(ws *websocket.Conn) {
-	msgBufMu.Lock()
-	defer msgBufMu.Unlock()
-	delete(msgBufs, ws)
-}
 
 func setupTestServer() (*httptest.Server, *models.Hub, *models.MockPersister) {
 	mockStorage := models.NewMockStorage()
@@ -187,44 +182,28 @@ func TestWebSocketChatMessage(t *testing.T) {
 	ws2 := connectWebSocket(t, server.URL, "bob", "Bob")
 	defer ws2.Close()
 
-	// Both join the same room
+	// Alice joins the room
 	sendMessage(t, ws1, &models.Message{
 		Type:   models.MessageTypeJoinRoom,
 		RoomID: "test_room",
 	})
-	// Wait for alice's join notification before bob joins
-	receiveMessage(t, ws1, 1*time.Second)
+	receiveMessage(t, ws1, 1*time.Second) // UserJoined{alice}
 
+	// Bob joins the room
 	sendMessage(t, ws2, &models.Message{
 		Type:   models.MessageTypeJoinRoom,
 		RoomID: "test_room",
 	})
-	time.Sleep(100 * time.Millisecond)
-
-	// Drain all remaining join notifications from both clients
-	for _, ws := range []*websocket.Conn{ws1, ws2} {
-		for getBufferedMessage(ws) != nil {
-		}
-		// Read and discard any pending WebSocket frames (batched join notifications)
-		ws.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-		for {
-			_, _, err := ws.ReadMessage()
-			if err != nil {
-				break
-			}
-			ws.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-		}
-	}
-	time.Sleep(50 * time.Millisecond)
+	// Bob's join triggers UserJoined{bob} broadcast to room (both clients)
+	receiveMessage(t, ws1, 1*time.Second) // UserJoined{bob} for alice
+	receiveMessage(t, ws2, 1*time.Second) // UserJoined{bob} echo for bob
 
 	// Alice sends a chat message
-	chatMsg := &models.Message{
+	sendMessage(t, ws1, &models.Message{
 		Type:    models.MessageTypeChat,
 		RoomID:  "test_room",
 		Content: "Hello Bob!",
-	}
-	sendMessage(t, ws1, chatMsg)
-	time.Sleep(100 * time.Millisecond)
+	})
 
 	// Both clients should receive the message
 	msg1 := receiveMessage(t, ws1, 1*time.Second)

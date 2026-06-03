@@ -370,9 +370,6 @@ go test ./...
 
 WritePump может объединять несколько JSON-сообщений в один WebSocket фрейм через `\n`. В тестах это обрабатывается на уровне чтения: `receiveMessage` в `websocket_test.go` разбивает пришедший фрейм по `\n`, парсит каждый JSON отдельно и буферизует излишки для последующих вызовов. Буфер хранится в пакетной `msgBufs map[*websocket.Conn][]*models.Message`.
 
-#### Известные проблемы
-
-3 теста периодически падают с timeout (`TestWebSocketChatMessage`, `TestWebSocketMessageOrdering`, `TestWebSocketBroadcastDoesNotLeakBetweenRooms`). Причина: порядок уведомлений `user_joined` зависит от планировщика Go, и механизм drain с `SetReadDeadline` не гарантирует, что все уведомления потреблены до отправки чат-сообщения.
 
 ## React Frontend
 
