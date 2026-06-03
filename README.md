@@ -309,70 +309,70 @@ go build -o bin/server .
 - `http://localhost:8080/health` -- health check endpoint
 - `http://localhost:8080/stats` -- информация о количестве подключенных клиентов
 
-### Тестирование
-
-Тестирование с помощью websocat:
+### Тестирование вручную (websocat)
 
 ```bash
-# Установка websocat (если еще не установлен)
 brew install websocat
-
-# Подключение первого пользователя
 websocat "ws://localhost:8080/ws?user_id=alice&username=Alice"
-
-# В другом терминале -- второй пользователь
+# в другом терминале:
 websocat "ws://localhost:8080/ws?user_id=bob&username=Bob"
 ```
 
-#### Пример 1: Общение в комнате
+#### Пример: общение в комнате
 
-**Терминал Alice:**
+**Alice:**
 ```json
 {"type": "join_room", "room_id": "general"}
 ```
-
-**Терминал Bob:**
+**Bob:**
 ```json
 {"type": "join_room", "room_id": "general"}
 ```
-
-**Alice отправляет сообщение:**
+**Alice:**
 ```json
 {"type": "chat", "room_id": "general", "content": "Hello everyone!"}
 ```
-
 **Bob получает:**
 ```json
 {"type":"chat","room_id":"general","user_id":"alice","username":"Alice","content":"Hello everyone!","timestamp":"2026-06-02T20:30:00Z"}
 ```
 
-#### Пример 2: Приватное сообщение
-
-**Alice отправляет Bob:**
-```json
-{"type": "private", "to_user_id": "bob", "content": "Hi Bob, this is private!"}
-```
-
-**Bob получает:**
-```json
-{"type":"private","user_id":"alice","username":"Alice","to_user_id":"bob","content":"Hi Bob, this is private!","timestamp":"2026-06-02T20:35:00Z"}
-```
-
-#### Пример 3: Несколько комнат
+#### Пример: приватное сообщение
 
 **Alice:**
 ```json
-{"type": "join_room", "room_id": "dev-team"}
-{"type": "chat", "room_id": "dev-team", "content": "Meeting in 5 minutes"}
+{"type": "private", "to_user_id": "bob", "content": "Hi Bob!"}
 ```
-
-**Bob (в другой комнате):**
+**Bob получает:**
 ```json
-{"type": "join_room", "room_id": "general"}
-{"type": "chat", "room_id": "general", "content": "Anyone here?"}
+{"type":"private","user_id":"alice","username":"Alice","to_user_id":"bob","content":"Hi Bob!","timestamp":"2026-06-02T20:35:00Z"}
 ```
 
-Сообщения Alice видны только в комнате `dev-team`, сообщения Bob -- только в `general`.
+### Автоматические тесты Go
+
+```bash
+cd server
+go test ./...
+```
+
+#### Структура
+
+- **`models/hub_test.go`** -- unit-тесты Hub (регистрация, сообщения, выход из комнаты)
+- **`models/hub_extended_test.go`** -- расширенные тесты Hub (дубликаты регистрации, изоляция комнат, конкурентные клиенты, приватные сообщения, история при входе, очистка пустых комнат, заполнение полей отправителя)
+- **`handlers/websocket_test.go`** -- интеграционные тесты WebSocket (чат, порядок сообщений, изоляция комнат, reconnect, burst disconnect, приватные сообщения, fallback username)
+- **`handlers/websocket_extended_test.go`** -- расширенные интеграционные тесты (невалидный JSON, история при входе, конкурентные сообщения)
+
+#### Mocks
+
+`models/mock.go` содержит `MockStorage` и `MockPersister` с thread-safe картами (`sync.Mutex`), так как тесты запускают Hub/WritePump goroutines, обращающиеся к ним конкурентно. Mocks расположены в пакете `models` (рядом с интерфейсами), что предотвращает циклический импорт.
+
+#### WritePump batching
+
+WritePump может объединять несколько JSON-сообщений в один WebSocket фрейм через `\n`. В тестах это обрабатывается на уровне чтения: `receiveMessage` в `websocket_test.go` разбивает пришедший фрейм по `\n`, парсит каждый JSON отдельно и буферизует излишки для последующих вызовов. Буфер хранится в пакетной `msgBufs map[*websocket.Conn][]*models.Message`.
+
+#### Известные проблемы
+
+3 теста периодически падают с timeout (`TestWebSocketChatMessage`, `TestWebSocketMessageOrdering`, `TestWebSocketBroadcastDoesNotLeakBetweenRooms`). Причина: порядок уведомлений `user_joined` зависит от планировщика Go, и механизм drain с `SetReadDeadline` не гарантирует, что все уведомления потреблены до отправки чат-сообщения.
 
 ## React Frontend
 
