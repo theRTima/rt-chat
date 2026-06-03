@@ -56,6 +56,28 @@ yarn-error.log*
 client/build/
 client/dist/
 
+# Node build outputs
+dist-ssr
+
+# Visual Studio files
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# VS Code extensions config
+.vscode/*
+!.vscode/extensions.json
+
+# Editor swap files
+*.sw?
+
+# Local env files
+*.local
+
+# Lerna debug logs
+lerna-debug.log*
+
 # Temporary files
 tmp/
 temp/
