@@ -1,0 +1,39 @@
+.room-selector {
+  padding: 1rem;
+}
+
+.room-selector h3 {
+  margin: 0 0 1rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.room-button {
+  padding: 0.5rem 1rem;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  transition: all 0.2s;
+}
+
+.room-button:hover {
+  background-color: #f3f4f6;
+}
+
+.room-button.active {
+  background-color: #3b82f6;
+  color: white;
+}
