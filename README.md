@@ -41,6 +41,7 @@ client/
 db/
   migrations/
     001_initial_schema.sql  # SQL схема базы данных
+docker-compose.yml           # Docker Compose для запуска всех сервисов
 ```
 
 ### Компоненты
@@ -460,6 +461,62 @@ VITE_WS_URL=ws://localhost:8080/ws
 - **Message history** - загрузка истории через WebSocket при входе в комнату
 - **LocalStorage** - сохранение userId и username между сессиями
 
+## Docker
+
+### Структура
+
+Проект включает три Docker-контейнера, описанных в `docker-compose.yml`:
+
+- **db** -- PostgreSQL 16 (Alpine) с постоянным томом для данных
+- **backend** -- Go сервер (мультистейдж билд: golang:1.26-alpine -> alpine:3.21)
+- **frontend** -- React клиент (мультистейдж билд: node:22 -> nginx:alpine)
+
+### Запуск
+
+```bash
+docker compose up --build
+```
+
+После запуска:
+- Frontend: http://localhost:3000
+- Backend WebSocket: ws://localhost:8080/ws
+- Health check: http://localhost:8080/health
+- PostgreSQL: localhost:5432
+
+### Остановка
+
+```bash
+docker compose down
+```
+
+Для удаления томов с данными БД:
+
+```bash
+docker compose down -v
+```
+
+### Сборка образов по отдельности
+
+```bash
+# Только backend
+docker build -t rt-chat-backend ./server
+
+# Только frontend (с указанием адреса WebSocket)
+docker build --build-arg VITE_WS_URL=ws://localhost:8080/ws -t rt-chat-frontend ./client
+```
+
+### Переменные окружения
+
+- `DATABASE_URL` -- строка подключения к PostgreSQL для backend (в Docker Compose настроена автоматически)
+- `VITE_WS_URL` -- адрес WebSocket сервера для frontend (передаётся как build arg)
+
+### Особенности
+
+- База данных инициализируется автоматически при старте backend (схема создаётся через `InitSchema`)
+- Frontend использует nginx для раздачи статики
+- Backend ожидает готовности PostgreSQL через healthcheck (pg_isready)
+- Данные PostgreSQL сохраняются в Docker volume `pgdata`
+
 ## Текущий статус
 
 - [x] Базовая Hub-and-Spoke архитектура
@@ -479,4 +536,5 @@ VITE_WS_URL=ws://localhost:8080/ws
 - [x] Custom hook useChat с реконнектом
 - [x] Context API для глобального состояния
 - [x] UI компоненты с автоскроллом
+- [x] Docker Compose (postgres, backend, frontend)
 - [ ] Нагрузочное тестирование (10K соединений)
