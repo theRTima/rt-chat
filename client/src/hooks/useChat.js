@@ -12,6 +12,7 @@ export const useChat = (roomId) => {
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef(null);
   const currentRoomRef = useRef(null);
+  const roomGenRef = useRef(0);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -32,7 +33,11 @@ export const useChat = (roomId) => {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          setMessages((prev) => [...prev, message]);
+          const gen = roomGenRef.current;
+          setMessages((prev) => {
+            if (roomGenRef.current !== gen) return prev;
+            return [...prev, message];
+          });
         } catch (error) {
           console.error('Failed to parse message:', error);
         }
@@ -133,9 +138,18 @@ export const useChat = (roomId) => {
     };
     wsRef.current.send(JSON.stringify(joinMessage));
     currentRoomRef.current = newRoomId;
-
-    setMessages([]);
   }, []);
+
+  useEffect(() => {
+    roomGenRef.current += 1;
+    setMessages([]);
+  }, [roomId]);
+
+  useEffect(() => {
+    if (isConnected && roomId) {
+      joinRoom(roomId);
+    }
+  }, [roomId, isConnected, joinRoom]);
 
   useEffect(() => {
     connect();
@@ -144,12 +158,6 @@ export const useChat = (roomId) => {
       disconnect();
     };
   }, [connect, disconnect]);
-
-  useEffect(() => {
-    if (isConnected && roomId) {
-      joinRoom(roomId);
-    }
-  }, [roomId, isConnected, joinRoom]);
 
   return {
     messages,

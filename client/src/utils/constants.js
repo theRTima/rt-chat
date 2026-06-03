@@ -1,4 +1,7 @@
-export const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8080/ws`;
+const loc = window.location;
+const wsProtocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+
+export const WS_URL = import.meta.env.VITE_WS_URL || `${wsProtocol}//${loc.host}/ws`;
 
 export const MESSAGE_TYPES = {
   JOIN_ROOM: 'join_room',
@@ -10,5 +13,5 @@ export const MESSAGE_TYPES = {
   USER_LEFT: 'user_left',
 };
 
-export const RECONNECT_DELAY = 3000; // 3 seconds
+export const RECONNECT_DELAY = 3000;
 export const MAX_RECONNECT_ATTEMPTS = 5;
