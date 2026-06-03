@@ -32,6 +32,12 @@ server/
     database.go        # Подключение к PostgreSQL (pgxpool)
     repository.go      # Все методы запросов к БД
     persister.go       # Асинхронное сохранение сообщений (worker pool)
+client/
+  src/
+    components/        # React компоненты UI
+    hooks/             # Custom hooks (useChat)
+    context/           # Context API для глобального состояния
+    utils/             # Константы и утилиты
 db/
   migrations/
     001_initial_schema.sql  # SQL схема базы данных
@@ -367,6 +373,93 @@ websocat "ws://localhost:8080/ws?user_id=bob&username=Bob"
 
 Сообщения Alice видны только в комнате `dev-team`, сообщения Bob -- только в `general`.
 
+## React Frontend
+
+### Установка и запуск
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Приложение будет доступно по адресу `http://localhost:5173`
+
+### Архитектура фронтенда
+
+#### Структура
+
+- **components/** - React компоненты
+  - `ChatRoom.jsx` - главный контейнер чата
+  - `RoomSelector.jsx` - выбор комнаты
+  - `MessageFeed.jsx` - лента сообщений с автоскроллом
+  - `MessageInput.jsx` - поле ввода сообщения
+- **hooks/** - кастомные хуки
+  - `useChat.js` - управление WebSocket соединением
+- **context/** - глобальное состояние
+  - `ChatContext.jsx` - Context API для user state
+- **utils/** - константы и утилиты
+
+#### useChat Hook
+
+Кастомный хук `useChat(roomId)` обеспечивает:
+
+- **WebSocket соединение** - автоматическое подключение при монтировании
+- **Автоматический реконнект** - до 5 попыток с задержкой 3 секунды
+- **История сообщений** - получение последних 50 сообщений при входе в комнату
+- **Отправка сообщений** - `sendMessage(content, type, toUserId)`
+- **Переключение комнат** - `joinRoom(newRoomId)` с автоматическим выходом из предыдущей
+- **Состояние соединения** - `isConnected`, `isReconnecting`
+
+```javascript
+const { messages, isConnected, sendMessage, joinRoom } = useChat(roomId);
+```
+
+#### Context API
+
+`ChatContext` управляет глобальным состоянием:
+
+- `userId` - уникальный ID пользователя (сохраняется в localStorage)
+- `username` - имя пользователя (сохраняется в localStorage)
+- `currentRoom` - текущая комната
+- `setCurrentRoom()` - переключение комнаты
+- `updateUser()` - обновление данных пользователя
+
+#### Компоненты
+
+**MessageFeed**
+- Автоматический скролл к последнему сообщению с `useRef` и `useEffect`
+- Рендеринг разных типов сообщений (chat, private, system, error)
+- Визуальное отличие своих сообщений от чужих
+- Форматирование времени
+
+**MessageInput**
+- Отправка по Enter (Shift+Enter для новой строки)
+- Disabled состояние при отключении
+- Автоочистка после отправки
+
+**RoomSelector**
+- Список доступных комнат
+- Индикация активной комнаты
+- Переключение комнат одним кликом
+
+### Настройка
+
+Создайте файл `.env` в директории `client`:
+
+```bash
+VITE_WS_URL=ws://localhost:8080/ws
+```
+
+### Особенности реализации
+
+- **Функциональные компоненты** - только hooks (useState, useEffect, useRef, useCallback)
+- **Auto-scroll** - MessageFeed автоматически прокручивается к новым сообщениям
+- **Reconnection logic** - автоматический реконнект с exponential backoff
+- **Room switching** - автоматический выход из предыдущей комнаты при переключении
+- **Message history** - загрузка истории через WebSocket при входе в комнату
+- **LocalStorage** - сохранение userId и username между сессиями
+
 ## Текущий статус
 
 - [x] Базовая Hub-and-Spoke архитектура
@@ -382,5 +475,8 @@ websocat "ws://localhost:8080/ws?user_id=bob&username=Bob"
 - [x] Схема базы данных (users, rooms, messages, room_members)
 - [x] Асинхронное сохранение сообщений (worker pool, batch inserts)
 - [x] История сообщений (последние 50 при входе в комнату)
-- [ ] Frontend на React
+- [x] React frontend с WebSocket
+- [x] Custom hook useChat с реконнектом
+- [x] Context API для глобального состояния
+- [x] UI компоненты с автоскроллом
 - [ ] Нагрузочное тестирование (10K соединений)
