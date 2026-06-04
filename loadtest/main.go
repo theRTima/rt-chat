@@ -60,6 +60,11 @@ type loadClient struct {
 
 // ---------- stats collector (thread-safe) ----------
 
+type dialError struct {
+	msg  string
+	count int64
+}
+
 type latencySummary struct {
 	Avg     time.Duration
 	P50     time.Duration
@@ -78,6 +83,56 @@ type statsCollector struct {
 
 	mu        sync.Mutex
 	latencies []time.Duration
+	dialErrs  map[string]*dialError
+}
+
+func (s *statsCollector) recordDialError(errMsg string) {
+	s.mu.Lock()
+	if s.dialErrs == nil {
+		s.dialErrs = make(map[string]*dialError)
+	}
+	de, ok := s.dialErrs[errMsg]
+	if !ok {
+		de = &dialError{msg: errMsg}
+		s.dialErrs[errMsg] = de
+	}
+	de.count++
+	s.mu.Unlock()
+}
+
+func (s *statsCollector) dialErrorSummary() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.dialErrs) == 0 {
+		return ""
+	}
+
+	// Collect and sort by count descending
+	sorted := make([]*dialError, 0, len(s.dialErrs))
+	for _, de := range s.dialErrs {
+		sorted = append(sorted, de)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].count > sorted[j].count
+	})
+
+	var b strings.Builder
+	// Show top 5 errors
+	limit := 5
+	if len(sorted) < limit {
+		limit = len(sorted)
+	}
+	for i, de := range sorted[:limit] {
+		if i > 0 {
+			b.WriteString("\n    ")
+		}
+		b.WriteString(fmt.Sprintf("×%d: %s", de.count, de.msg))
+	}
+	if len(sorted) > limit {
+		b.WriteString(fmt.Sprintf("\n    ... and %d more error types", len(sorted)-limit))
+	}
+	return b.String()
 }
 
 func (s *statsCollector) recordLatency(d time.Duration) {
@@ -194,6 +249,7 @@ func connectClient(id int, server string, stats *statsCollector) *loadClient {
 
 	conn, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
+		stats.recordDialError(err.Error())
 		atomic.AddInt64(&stats.failed, 1)
 		return nil
 	}
@@ -515,5 +571,9 @@ func printFinal(stats *statsCollector, start time.Time, initiated int) {
 	fmt.Printf("  Min:               %s\n", ls.Min.Round(time.Microsecond))
 	fmt.Printf("  Max:               %s\n", ls.Max.Round(time.Microsecond))
 	fmt.Printf("  Samples:           %d\n", ls.Samples)
+	if errSummary := stats.dialErrorSummary(); errSummary != "" {
+		fmt.Println("  ── Top dial errors ──")
+		fmt.Printf("  %s\n", errSummary)
+	}
 	fmt.Println(strings.Repeat("=", 60))
 }
