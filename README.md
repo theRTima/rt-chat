@@ -19,29 +19,29 @@
 
 ```
 server/
-  main.go              # Точка входа, HTTP сервер
-  models/
-    hub.go             # Hub для управления клиентами и комнатами
-    client.go          # Client с read/write goroutine
-    room.go            # Room для управления группой клиентов
-    message.go         # Структуры сообщений и протокол
-    user.go            # Модель пользователя для БД
-  handlers/
-    websocket.go       # WebSocket upgrade handler
-  storage/
-    database.go        # Подключение к PostgreSQL (pgxpool)
-    repository.go      # Все методы запросов к БД
-    persister.go       # Асинхронное сохранение сообщений (worker pool)
+├── main.go                  # Точка входа, HTTP сервер
+├── models/
+│   ├── hub.go               # Hub для управления клиентами и комнатами
+│   ├── client.go            # Client с read/write goroutine
+│   ├── room.go              # Room для управления группой клиентов
+│   ├── message.go           # Структуры сообщений и протокол
+│   └── user.go              # Модель пользователя для БД
+├── handlers/
+│   └── websocket.go         # WebSocket upgrade handler
+└── storage/
+    ├── database.go          # Подключение к PostgreSQL (pgxpool)
+    ├── repository.go        # Все методы запросов к БД
+    └── persister.go         # Асинхронное сохранение сообщений (worker pool)
 client/
-  src/
-    components/        # React компоненты UI
-    hooks/             # Custom hooks (useChat)
-    context/           # Context API для глобального состояния
-    utils/             # Константы и утилиты
+└── src/
+    ├── components/          # React компоненты UI
+    ├── hooks/               # Custom hooks (useChat)
+    ├── context/             # Context API для глобального состояния
+    └── utils/               # Константы и утилиты
 db/
-  migrations/
-    001_initial_schema.sql  # SQL схема базы данных
-docker-compose.yml           # Docker Compose для запуска всех сервисов
+└── migrations/
+    └── 001_initial_schema.sql  # SQL схема базы данных
+docker-compose.yml               # Docker Compose для запуска всех сервисов
 ```
 
 ### Компоненты
