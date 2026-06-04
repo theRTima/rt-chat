@@ -67,10 +67,10 @@ type ClientMessage struct {
 // NewHub создает новый Hub
 func NewHub(storage Storage) *Hub {
 	return &Hub{
-		Broadcast:      make(chan []byte, 256),
+		Broadcast:      make(chan []byte, 1024),
 		Register:       make(chan *Client),
 		Unregister:     make(chan *Client),
-		Message:        make(chan *ClientMessage, 256),
+		Message:        make(chan *ClientMessage, 1024),
 		clients:        make(map[*Client]bool),
 		userClients:    make(map[string]*Client),
 		userByUsername: make(map[string]*Client),
@@ -100,7 +100,7 @@ func (h *Hub) Run() {
 			// Сохраняем пользователя в БД (асинхронно, не блокируем регистрацию)
 			if h.Storage != nil {
 				go func() {
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
 					if err := h.Storage.UpsertUser(ctx, client.UserID, client.Username); err != nil {
 						log.Printf("Failed to save user to database: %v", err)
@@ -219,7 +219,7 @@ func (h *Hub) handleJoinRoom(client *Client, msg *Message) {
 		// Сохраняем комнату в БД (асинхронно)
 		if h.Storage != nil {
 			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				if err := h.Storage.UpsertRoom(ctx, msg.RoomID, msg.RoomID); err != nil {
 					log.Printf("Failed to save room to database: %v", err)
@@ -247,7 +247,7 @@ func (h *Hub) handleJoinRoom(client *Client, msg *Message) {
 	// Отправляем историю сообщений клиенту
 	if h.Storage != nil {
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			history, err := h.Storage.GetRoomHistory(ctx, msg.RoomID, 50)
 			if err != nil {

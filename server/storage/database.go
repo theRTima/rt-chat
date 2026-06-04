@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,11 +33,19 @@ func NewDB(ctx context.Context) (*DB, error) {
 	}
 
 	// Настройки пула для высокой нагрузки
-	config.MaxConns = 50                          // Максимум соединений
-	config.MinConns = 5                           // Минимум соединений
+	maxConns := 200
+	if s := os.Getenv("DATABASE_POOL_SIZE"); s != "" {
+		if v, err := strconv.Atoi(s); err != nil || v < 1 {
+			log.Printf("Invalid DATABASE_POOL_SIZE=%q, using default %d", s, maxConns)
+		} else {
+			maxConns = v
+		}
+	}
+	config.MaxConns = int32(maxConns)             // Максимум соединений (env DATABASE_POOL_SIZE)
+	config.MinConns = 20                          // Минимум соединений для burst
 	config.MaxConnLifetime = time.Hour            // Время жизни соединения
 	config.MaxConnIdleTime = 30 * time.Minute     // Время idle перед закрытием
-	config.HealthCheckPeriod = 1 * time.Minute    // Проверка здоровья соединений
+	config.HealthCheckPeriod = 30 * time.Second   // Чаще проверять здоровье
 	config.ConnConfig.ConnectTimeout = 5 * time.Second
 
 	// Создаем пул соединений
