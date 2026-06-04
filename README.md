@@ -319,82 +319,21 @@ type Message struct {
 }
 ```
 
-## Запуск сервера
-
-### Требования
-
-- Go 1.26+
-- PostgreSQL (доступный по `DATABASE_URL` или на localhost:5432)
-
-### Настройка базы данных
+## Запуск
 
 ```bash
-createdb rtchat
-```
-
-### Переменные окружения
-
-- `DATABASE_URL` -- строка подключения к PostgreSQL (по умолчанию: `postgres://postgres:postgres@localhost:5432/rtchat?sslmode=disable`)
-
-### Сборка
-
-```bash
-cd server
-go build -o bin/server .
-```
-
-### Запуск
-
-```bash
-./bin/server
-# или с custom портом
-./bin/server -addr :3000
+docker compose up --build
 ```
 
 ### Endpoints
 
-- `ws://localhost:8080/ws?user_id=<id>&username=<name>` -- WebSocket endpoint для подключения клиентов
-- `http://localhost:8080/health` -- health check endpoint
-- `http://localhost:8080/debug` -- JSON с диагностикой: clients, attempts, upgrade_failures, accepts, goroutines, rooms
-
-### Тестирование вручную (websocat)
-
-```bash
-brew install websocat
-websocat "ws://localhost:8080/ws?user_id=alice&username=Alice"
-# в другом терминале:
-websocat "ws://localhost:8080/ws?user_id=bob&username=Bob"
-```
-
-#### Пример: общение в комнате
-
-**Alice:**
-```json
-{"type": "join_room", "room_id": "general"}
-```
-**Bob:**
-```json
-{"type": "join_room", "room_id": "general"}
-```
-**Alice:**
-```json
-{"type": "chat", "room_id": "general", "content": "Hello everyone!"}
-```
-**Bob получает:**
-```json
-{"type":"chat","room_id":"general","user_id":"alice","username":"Alice","content":"Hello everyone!","timestamp":"2026-06-02T20:30:00Z"}
-```
-
-#### Пример: приватное сообщение
-
-**Alice:**
-```json
-{"type": "private", "to_user_id": "bob", "content": "Hi Bob!"}
-```
-**Bob получает:**
-```json
-{"type":"private","user_id":"alice","username":"Alice","to_user_id":"bob","content":"Hi Bob!","timestamp":"2026-06-02T20:35:00Z"}
-```
+| Endpoint | Описание |
+|---|---|
+| `http://localhost:3000` | Frontend (React через nginx) |
+| `ws://localhost:8080/ws?user_id=<id>&username=<name>` | WebSocket для подключения клиентов |
+| `http://localhost:8080/health` | Health check |
+| `http://localhost:8080/debug` | JSON диагностика: clients, attempts, upgrade_failures, accepts, goroutines, rooms |
+| `postgres://postgres:postgres@localhost:5432/rtchat` | PostgreSQL
 
 ### Автоматические тесты Go
 
@@ -527,29 +466,6 @@ go run . -target 10000 -rate 500 -server localhost:8080 -messengers 10 -duration
 - `-interval` -- интервал между сообщениями от одного мессенджера (по умолчанию 5s)
 - `-skip-check` -- пропустить preflight проверку подключения (по умолчанию false)
 
-#### Preflight проверка
-
-Перед запуском теста скрипт автоматически проверяет доступность сервера:
-
-1. HTTP запрос к `http://<server>/health`
-2. WebSocket подключение с параметрами `user_id=preflight&username=Preflight`
-3. Отправка `join_room` в комнату `general` и ожидание ответа
-
-Если любой из шагов не удался, тест завершается с понятным сообщением об ошибке. Это предотвращает ситуацию, когда тест "успешно" выполняется с 0 подключениями из-за неверного адреса сервера.
-
-Для пропуска preflight (например, при нестандартной конфигурации сервера):
-
-```bash
-go run . -target 1000 -server myhost:8080 -skip-check
-```
-
-#### Как это работает
-
-1. **Ramp-up**: клиенты подключаются с заданной скоростью через `time.NewTicker`. Каждый клиент сразу вступает в комнату `general`.
-2. **Messengers**: случайное подмножество клиентов периодически отправляет `chat` сообщения с встроенной nanosecond timestamp.
-3. **ReadPump**: каждый клиент читает входящие фреймы и детектирует свой собственный echo (сверяя `user_id`). Замеряется round-trip latency от отправки до получения.
-4. **Сбор статистики**: thread-safe `statsCollector` с `atomic` счётчиками и `sync.Mutex` для гистограммы задержек.
-
 #### Диагностика сервера
 
 Сервер предоставляет `/debug` endpoint с JSON-диагностикой:
@@ -566,142 +482,41 @@ go run . -target 1000 -server myhost:8080 -skip-check
 | accepts | attempts | clients | upgrade_failures | Вывод |
 |---------|----------|---------|------------------|-------|
 | ~1000 | ~1000 | ~1000 | 0 | TCP bottleneck (сервер не принимает соединения) |
-| ~10000 | ~1000 | ~1000 | 0 | HTTP dispatch bottleneck (запросы не доходят до handler) |
+| ~10000 | ~1000 | ~1000 | 0 | HTTP dispatch bottleneck |
 | ~10000 | ~10000 | ~1000 | 0 | WebSocket upgrade failure |
-| ~10000 | ~10000 | ~10000 | 0 | Проблема после Hub (каналы или persistence)
+| ~10000 | ~10000 | ~10000 | 0 | Проблема после Hub (каналы / persistence) |
 
-#### Вывод
-
-```
-Connected:         10000
-Failed:            0
-Success rate:      100.0%
-Messages sent:     80
-Received (echo):   80
-Delivery rate:     100.0%
-Latency:
-  Average:          2.8ms
-  P50 (median):     2.5ms
-  P95:              5.1ms
-  P99:              12.3ms
-  Min:              1.2ms
-  Max:              45.6ms
-```
-
-Во время теста каждые 5 секунд выводится промежуточная статистика: количество подключений, отправленных/полученных сообщений, средняя и P95 задержка.
-
-#### Лимиты ОС
-
-Для 10,000 одновременных WebSocket соединений необходимо увеличить лимит открытых файловых дескрипторов. Скрипт содержит комментарии с инструкциями для macOS и Linux в начале `main.go`.
-
-#### Запуск генератора на macOS
-
-macOS может выступать генератором нагрузки на удалённый Linux-сервер, но имеет ограничения:
-
-- **Установлено**: при тестах с удалённого сервера (Linux) чат-сервер стабильно принимает 2000+ соединений (максимальное тестированное значение).
-- **macOS как генератор**: при запуске loadtest с macOS на удалённый Linux-сервер наблюдалось ~1000 успешных соединений. Дальнейшие соединения не доходили до `Accept()` на сервере (`ListenOverflows: 0`), что указывает на ограничение на стороне macOS, а не сервера.
-
-**Рекомендация**: для нагрузочного тестирования с целевым значением >2000 используйте выделенный Linux-генератор (см. следующий раздел) или запускайте loadtest из Docker-контейнера на том же сервере.
-
-Настройка перед запуском (если нужно тестировать с macOS):
+#### Запуск на Linux (выделенный генератор)
 
 ```bash
-# 1. Лимит открытых файлов (системный)
-sudo launchctl limit maxfiles 1048576 1048576
-
-# 2. Лимит открытых файлов (текущая сессия)
-ulimit -n 1048576
-
-# 3. Максимальное количество файлов в системе
-sudo sysctl -w kern.maxfiles=1048576
-sudo sysctl -w kern.maxfilesperproc=1048576
-
-# 4. Увеличить диапазон эфемерных портов (опционально, если нужно больше)
-sudo sysctl -w net.inet.ip.portrange.first=16384
-sudo sysctl -w net.inet.ip.portrange.last=65535
-
-# 5. Проверка
-ulimit -n
-sysctl net.inet.ip.portrange.first net.inet.ip.portrange.last kern.maxfiles
-```
-
-Запуск теста на macOS:
-
-```bash
-cd loadtest
-go run . -target 1000 -rate 200 -server <LINUX_SERVER_IP>:8080 -messengers 10 -duration 30s
-```
-
-#### Запуск с отдельного Linux сервера
-
-Для нагрузочного тестирования с выделенной машины используется схема: **сервер** (запущен чат) + **генератор** (запущен `loadtest/main.go`).
-
-##### 1. Подготовка сервера
-
-Сервер с чатом должен быть доступен генератору по сети. Разверните через Docker Compose:
-
-```bash
+# На генераторе:
 git clone <repo> /opt/rt-chat
-cd /opt/rt-chat
-docker compose up --build -d
+cd /opt/rt-chat/loadtest
+go mod download
+
+# Быстрая проверка
+go run . -target 10 -rate 10 -server <SERVER_IP>:8080
+
+# Полноценный тест
+go run . -target 10000 -rate 500 -server <SERVER_IP>:8080 -messengers 20 -duration 60s
 ```
 
-Проверьте, что backend слушает на порту 8080 (или проброшен через nginx). Убедитесь, что файрволл открывает порт для генератора.
-
-На сервере также нужно увеличить лимиты ОС — он держит 10,000+ входящих соединений:
+На сервере увеличьте лимиты ОС:
 
 ```bash
 # /etc/security/limits.conf
 *         hard    nofile      1048576
 *         soft    nofile      1048576
 
-# /etc/sysctl.conf (или sysctl -w)
+# sysctl
 net.core.somaxconn=65535
 net.ipv4.tcp_max_syn_backlog=65535
-net.ipv4.ip_local_port_range="1024 65535"
-net.ipv4.tcp_tw_reuse=1
 ```
 
-После изменений перезайти в сессию (`ulimit -n` покажет 1048576).
-
-##### 2. Подготовка генератора
-
-Генератор -- отдельная Linux машина (чем больше ядер/сети, тем лучше). Клонируйте только директорию `loadtest` или весь репозиторий:
+#### Запуск из контейнера (container-to-container)
 
 ```bash
-git clone <repo> /opt/rt-chat
-cd /opt/rt-chat/loadtest
-go mod download
-```
-
-На генераторе также поднимите лимиты ОС (аналогично серверу), т.к. 10,000 исходящих сокетов требуют тех же дескрипторов.
-
-##### 3. Запуск теста
-
-```bash
-cd /opt/rt-chat/loadtest
-
-# Быстрая проверка (10 коннектов)
-go run . -target 10 -rate 10 -server <SERVER_IP>:8080 -messengers 2 -duration 10s
-
-# Полноценный тест (10,000 коннектов)
-go run . -target 10000 -rate 500 -server <SERVER_IP>:8080 -messengers 20 -duration 60s -interval 3s
-```
-
-- `-server <SERVER_IP>:8080` — указывает на сервер с чатом (вместо localhost)
-- `-rate 500` — 500 новых коннектов в секунду. Ramp-up займёт ~20 секунд, затем 60 секунд нагрузки.
-- `-messengers 20` — 20 клиентов отправляют сообщения каждые 3 секунды = ~6.6 msg/s.
-- `rate` не должен превышать возможности сети и CPU сервера. Начните с 200-500.
-
-##### 3a. Запуск теста из контейнера сервера (container-to-container)
-
-Для изоляции серверной части от сетевых ограничений генератора можно запустить loadtest прямо в контейнере backend:
-
-```bash
-# Скопировать loadtest в контейнер
 docker compose cp loadtest backend:/tmp/loadtest
-
-# Установить Go и запустить тест (Alpine runtime не содержит Go по умолчанию)
 docker compose exec backend sh -c '
   apk add go
   cd /tmp/loadtest
@@ -710,45 +525,9 @@ docker compose exec backend sh -c '
 '
 ```
 
-##### 4. Мониторинг во время теста
+#### Результаты
 
-На генераторе:
-
-```bash
-# Статистика от самого скрипта (выводится каждые 5с):
-#   [5s] conn: 5000  failed: 0  msgs: 15 sent / 15 recv  latency (avg/p95): 3.1ms / 5.2ms
-
-# Нагрузка на генератор:
-top -bn1 | head -5          # CPU и память
-sar -n TCP,DEV 1 5          # TCP-статистика и трафик по интерфейсам
-ss -s                       # Сводка по сокетам
-```
-
-На сервере:
-
-```bash
-docker stats                   # Потребление контейнеров
-ss -s                          # Сводка сокетов (ожидается ~10,000 ESTAB)
-netstat -an | grep :8080 | wc -l  # Количество соединений на порту 8080
-sar -n TCP,DEV 1 5             # TCP-статистика
-```
-
-##### 5. Типичные проблемы и их решения
-
-| Проблема | Причина | Решение |
-|---|---|---|
-| `connection refused` / preflight failed | Сервер не доступен или неверный адрес | Проверить `-server host:port`, файрволл, `docker compose ps` |
-| Preflight failed на health check | Неверный адрес или сервер не запущен | Проверить `curl http://host:port/health`; использовать `-skip-check` для кастомных конфигураций |
-| Preflight failed на WebSocket | Сервер работает, но не отвечает на WS | Проверить backend: `docker compose logs backend` |
-| `too many open files` | Лимит ОС | `ulimit -n 1048576`, проверить `limits.conf` |
-| `cannot assign requested address` | Исчерпаны локальные порты | Увеличить `ip_local_port_range`, включить `tcp_tw_reuse` |
-| Массовые отваливания после 5K | nginx/server backlog | Увеличить `net.core.somaxconn` |
-| Высокая latency (>100ms) | Утилизация CPU/сети | Уменьшить `rate` или увеличить ресурсы сервера |
-| ~1000 коннектов с macOS, 2000+ из контейнера | Ограничение на стороне macOS | Использовать Linux-генератор или запускать loadtest из Docker контейнера (`docker compose exec`) |
-
-##### 6. Результаты
-
-После завершения теста скрипт выводит итоговую сводку. Пример результата (2000 коннектов, container-to-container):
+После завершения теста скрипт выводит итоговую сводку:
 
 ```
 Connected:         2000
@@ -757,21 +536,10 @@ Success rate:      100.0%
 Messages sent:     70
 Received (echo):   70
 Delivery rate:     100.0%
-Latency:
-  Average:          2.9ms
-  P50 (median):     2.8ms
-  P95:              5.2ms
-  P99:              6.4ms
-  Min:              1.2ms
-  Max:              6.4ms
+Latency avg/p95:   2.9ms / 5.2ms
 ```
 
-Ожидаемые метрики для чата на Go:
-
-- **Успешных подключений**: 99.9%+ (единичные ошибки при пиковой нагрузке допустимы)
-- **Delivery rate**: 99.5%+ (потери 0.5% при переполнении Send каналов допустимы)
-- **Average latency**: 2-10ms на локальной сети, 10-50ms через интернет
-- **P99 latency**: не более 3x от среднего при стабильной нагрузке
+Ожидаемые метрики: >99.9% успешных подключений, >99.5% delivery rate, 2-10ms latency на локальной сети.
 
 ## React Frontend
 
@@ -896,11 +664,7 @@ VITE_WS_URL=ws://localhost:8080/ws
 docker compose up --build
 ```
 
-После запуска:
-- Frontend: http://localhost:3000
-- Backend WebSocket: ws://localhost:8080/ws
-- Health check: http://localhost:8080/health
-- PostgreSQL: localhost:5432
+После запуска сервисы доступны по адресам из таблицы Endpoints (см. раздел Запуск).
 
 ### Остановка
 
