@@ -429,8 +429,23 @@ func main() {
 
 	rampElapsed := time.Since(start)
 	c, f, _, _ := stats.snapshot()
-	fmt.Printf("\n  ✓ Ramp-up complete: %d connected, %d failed  [%s]\n\n",
+	fmt.Printf("\n  ✓ Ramp-up complete: %d connected, %d failed  [%s]\n",
 		c, f, rampElapsed.Round(time.Second))
+
+	// Detect server-side fd limit pattern
+	if c > 0 && c < 2000 && f > 0 && float64(f)/float64(c+f) > 0.3 {
+		fmt.Printf("\n  ⚠ Most connections failed after ~%d succeeded.\n", c)
+		fmt.Printf("    This likely means the SERVER's file descriptor limit (ulimit -n) is ~%d.\n", c+128)
+		fmt.Printf("    On the server machine, try:\n")
+		fmt.Printf("      1. ulimit -n 65536  (before starting the server)\n")
+		fmt.Printf("      2. In docker-compose, add to the backend service:\n")
+		fmt.Printf("         ulimits:\n")
+		fmt.Printf("           nofile:\n")
+		fmt.Printf("             soft: 65536\n")
+		fmt.Printf("             hard: 65536\n")
+		fmt.Printf("      3. Verify: docker compose exec backend sh -c 'ulimit -n'\n")
+	}
+	fmt.Println()
 
 	// ── Phase 2: sustained load ───────────────────────────────────────
 

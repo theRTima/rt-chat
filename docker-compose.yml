@@ -27,6 +27,10 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/rtchat?sslmode=disable
       DATABASE_POOL_SIZE: "200"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     depends_on:
       db:
         condition: service_healthy
