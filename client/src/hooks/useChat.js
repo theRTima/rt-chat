@@ -115,8 +115,11 @@ export const useChat = (roomId) => {
       ws.onclose = () => {
         console.log('WebSocket disconnected');
         setIsConnected(false);
-        wsRef.current = null;
         currentRoomRef.current = null;
+
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
 
         if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
           setIsReconnecting(true);
