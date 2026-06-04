@@ -515,16 +515,33 @@ WritePump может объединять несколько JSON-сообщен
 
 ```bash
 cd loadtest
-go run . -target 10000 -rate 500 -messengers 10 -duration 30s
+go run . -target 10000 -rate 500 -server localhost:8080 -messengers 10 -duration 30s
 ```
 
 Параметры:
 - `-target` -- количество соединений (по умолчанию 10000)
 - `-rate` -- скорость подключения в коннектах/сек (по умолчанию 500)
-- `-server` -- адрес WebSocket сервера (по умолчанию localhost:8080)
+- `-server` -- адрес WebSocket сервера в формате `host:port` (по умолчанию `localhost:8080`)
 - `-duration` -- длительность теста после разогрева (по умолчанию 30s)
 - `-messengers` -- количество клиентов, отправляющих сообщения (по умолчанию 10)
 - `-interval` -- интервал между сообщениями от одного мессенджера (по умолчанию 5s)
+- `-skip-check` -- пропустить preflight проверку подключения (по умолчанию false)
+
+#### Preflight проверка
+
+Перед запуском теста скрипт автоматически проверяет доступность сервера:
+
+1. HTTP запрос к `http://<server>/health`
+2. WebSocket подключение с параметрами `user_id=preflight&username=Preflight`
+3. Отправка `join_room` в комнату `general` и ожидание ответа
+
+Если любой из шагов не удался, тест завершается с понятным сообщением об ошибке. Это предотвращает ситуацию, когда тест "успешно" выполняется с 0 подключениями из-за неверного адреса сервера.
+
+Для пропуска preflight (например, при нестандартной конфигурации сервера):
+
+```bash
+go run . -target 1000 -server myhost:8080 -skip-check
+```
 
 #### Как это работает
 
@@ -682,7 +699,9 @@ sar -n TCP,DEV 1 5             # TCP-статистика
 
 | Проблема | Причина | Решение |
 |---|---|---|
-| `connection refused` | Сервер не доступен | Проверить `SERVER_IP`, порт, файрволл |
+| `connection refused` / preflight failed | Сервер не доступен или неверный адрес | Проверить `-server host:port`, файрволл, `docker compose ps` |
+| Preflight failed на health check | Неверный адрес или сервер не запущен | Проверить `curl http://host:port/health`; использовать `-skip-check` для кастомных конфигураций |
+| Preflight failed на WebSocket | Сервер работает, но не отвечает на WS | Проверить backend: `docker compose logs backend` |
 | `too many open files` | Лимит ОС | `ulimit -n 1048576`, проверить `limits.conf` |
 | `cannot assign requested address` | Исчерпаны локальные порты | Увеличить `ip_local_port_range`, включить `tcp_tw_reuse` |
 | Массовые отваливания после 5K | nginx/server backlog | Увеличить `net.core.somaxconn` |

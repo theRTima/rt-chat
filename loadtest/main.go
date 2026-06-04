@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -243,6 +244,55 @@ func messengerLoop(client *loadClient, stats *statsCollector, interval time.Dura
 	}
 }
 
+// ---------- preflight check ----------
+
+func preflightCheck(server string) error {
+	// 1. Check HTTP health endpoint
+	httpURL := fmt.Sprintf("http://%s/health", server)
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	resp, err := httpClient.Get(httpURL)
+	if err != nil {
+		return fmt.Errorf("health endpoint http://%s/health unreachable: %w\n  Check that the server address is correct", server, err)
+	}
+	resp.Body.Close()
+
+	// 2. Check WebSocket connection
+	u := url.URL{
+		Scheme: "ws",
+		Host:   server,
+		Path:   "/ws",
+		RawQuery: url.Values{
+			"user_id":  {"preflight"},
+			"username": {"Preflight"},
+		}.Encode(),
+	}
+
+	dialer := &websocket.Dialer{
+		HandshakeTimeout: 5 * time.Second,
+	}
+
+	conn, _, err := dialer.Dial(u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("WebSocket connection to ws://%s/ws failed: %w", server, err)
+	}
+	defer conn.Close()
+
+	// 3. Send join_room and verify we get a response
+	joinMsg := clientMessage{Type: "join_room", RoomID: "general"}
+	data, _ := json.Marshal(joinMsg)
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		return fmt.Errorf("preflight: failed to send join_room: %w", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _, err = conn.ReadMessage()
+	if err != nil {
+		return fmt.Errorf("preflight: connected but no response to join_room: %w\n  Check that the backend WebSocket handler is healthy", err)
+	}
+
+	return nil
+}
+
 // ---------- main ----------
 
 func main() {
@@ -252,6 +302,7 @@ func main() {
 	duration := flag.Duration("duration", 30*time.Second, "How long to run after ramp-up completes")
 	messengers := flag.Int("messengers", 10, "Number of connected clients that send messages")
 	interval := flag.Duration("interval", 5*time.Second, "Interval between messages per messenger")
+	skipCheck := flag.Bool("skip-check", false, "Skip the preflight connectivity check")
 	flag.Parse()
 
 	if *messengers > *target {
@@ -268,6 +319,24 @@ func main() {
 	fmt.Printf("  Messengers:          %d\n", *messengers)
 	fmt.Printf("  Msg interval:        %s\n", *interval)
 	fmt.Println(strings.Repeat("=", 60))
+
+	// ── Phase 0: preflight connectivity check ─────────────────────────
+
+	if !*skipCheck {
+		fmt.Printf("\n► Server connectivity check...\n")
+		if err := preflightCheck(*server); err != nil {
+			fmt.Fprintf(os.Stderr, "\n  ✗ Preflight failed\n")
+			fmt.Fprintf(os.Stderr, "    %v\n\n", err)
+			fmt.Println("  Tips:")
+			fmt.Println("    • Verify the server address: -server <host>:<port>")
+			fmt.Println("    • Check the server is running: docker compose ps")
+			fmt.Println("    • Test manually: curl http://<host>:<port>/health")
+			fmt.Println("    • Use -skip-check to bypass preflight (e.g. for custom setups)")
+			fmt.Println()
+			os.Exit(1)
+		}
+		fmt.Println("  ✓ Reachable and responding\n")
+	}
 
 	stats := &statsCollector{}
 	done := make(chan struct{})
