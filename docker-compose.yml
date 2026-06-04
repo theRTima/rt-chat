@@ -31,6 +31,11 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    # If still hitting ~1000 connection ceiling with "unexpected EOF":
+    # 1. Uncomment network_mode: host below (bypasses docker-proxy)
+    # 2. Change DATABASE_URL to localhost instead of db
+    # 3. Change frontend's nginx proxy_pass to use host IP instead of backend
+    # network_mode: host
     depends_on:
       db:
         condition: service_healthy

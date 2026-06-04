@@ -66,7 +66,15 @@ func main() {
 	}()
 
 	log.Printf("Starting server on %s", *addr)
-	err = http.ListenAndServe(*addr, nil)
+
+	srv := &http.Server{
+		Addr:              *addr,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1MB
+	}
+
+	err = srv.ListenAndServe()
 	if err != nil {
 		log.Fatal("ListenAndServe error: ", err)
 	}
