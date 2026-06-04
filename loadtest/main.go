@@ -61,7 +61,7 @@ type loadClient struct {
 // ---------- stats collector (thread-safe) ----------
 
 type dialError struct {
-	msg  string
+	msg   string
 	count int64
 }
 
