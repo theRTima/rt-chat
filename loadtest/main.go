@@ -23,23 +23,19 @@ import (
 /*
 OS limits for 10,000 concurrent connections:
 
+The loadtest auto-raises the file descriptor soft limit at startup.
+If that fails, configure manually:
+
 macOS:
   sudo launchctl limit maxfiles 1048576 1048576
   ulimit -n 1048576
-  (check: ulimit -n; launchctl limit maxfiles)
 
 Linux:
-  /etc/security/limits.conf:
-    *         hard    nofile      1048576
-    *         soft    nofile      1048576
-  Then: ulimit -n 1048576
-  (check: ulimit -n; cat /proc/sys/fs/file-max)
-
-Kernel tweaks (Linux):
-  sysctl -w net.core.somaxconn=65535
-  sysctl -w net.ipv4.tcp_max_syn_backlog=65535
-  sysctl -w net.ipv4.ip_local_port_range="1024 65535"
-  sysctl -w net.ipv4.tcp_tw_reuse=1
+  1. /etc/security/limits.conf:
+     *               soft    nofile          1048576
+     *               hard    nofile          1048576
+  2. systemd user override for the terminal or docker
+  3. Verify: ulimit -n
 */
 
 // ---------- protocol types (mirrors server's models.Message) ----------
@@ -293,6 +289,41 @@ func preflightCheck(server string) error {
 	return nil
 }
 
+// ---------- file descriptor limit check ----------
+
+func checkFileLimit(needed uint64) {
+	var rlim syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rlim); err != nil {
+		return
+	}
+	if rlim.Cur >= needed {
+		return
+	}
+
+	fmt.Printf("  ⚠ OS file descriptor limit: %d (need ~%d)\n", rlim.Cur, needed)
+
+	// Try to raise the limit
+	oldCur := rlim.Cur
+	rlim.Cur = needed
+	if needed > rlim.Max {
+		rlim.Max = needed
+	}
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rlim); err == nil {
+		fmt.Printf("    ✓ Auto-raised to %d\n", needed)
+		return
+	}
+
+	// Try raising soft limit to hard limit
+	rlim.Cur = rlim.Max
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rlim); err == nil {
+		fmt.Printf("    ✓ Raised soft limit to hard limit: %d (still below target)\n", rlim.Max)
+	} else {
+		fmt.Printf("    ✗ Hard limit: %d\n", rlim.Max)
+		fmt.Printf("    Run: ulimit -n %d  (or %d if hard limit restricts)\n", needed, oldCur*2)
+		fmt.Println("    System-wide: sudo launchctl limit maxfiles 1048576 1048576")
+	}
+}
+
 // ---------- main ----------
 
 func main() {
@@ -319,6 +350,9 @@ func main() {
 	fmt.Printf("  Messengers:          %d\n", *messengers)
 	fmt.Printf("  Msg interval:        %s\n", *interval)
 	fmt.Println(strings.Repeat("=", 60))
+
+	// ── Check OS file descriptor limit ────────────────────────────────
+	checkFileLimit(uint64(*target) + 256)
 
 	// ── Phase 0: preflight connectivity check ─────────────────────────
 
