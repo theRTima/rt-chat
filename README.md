@@ -77,8 +77,12 @@ Room представляет чат-комнату с группой клиен
 - `chat` -- сообщение в комнату
 - `private` -- приватное сообщение пользователю
 - `error` -- сообщение об ошибке
-- `user_joined` -- уведомление о входе пользователя
-- `user_left` -- уведомление о выходе пользователя
+- `user_joined` -- уведомление о входе пользователя (с `participant_count`)
+- `user_left` -- уведомление о выходе пользователя (с `participant_count`)
+- `user_lookup` -- запрос поиска пользователя по имени (с `content`)
+- `user_found` -- ответ с найденным пользователем (с `user_id`, `username`)
+- `user_not_found` -- ответ: пользователь не найден
+- `load_dm_history` -- запрос загрузки истории личных сообщений (с `to_user_id`)
 
 #### Client (models/client.go)
 
@@ -140,6 +144,8 @@ Room представляет чат-комнату с группой клиен
 #### История сообщений
 
 При подключении к комнате клиент автоматически получает последние 50 сообщений через WebSocket. Сообщения фильтруются по типу (chat, user_joined, user_left) и возвращаются в хронологическом порядке.
+
+При открытии DM диалога клиент отправляет `load_dm_history` и получает историю приватных сообщений между двумя пользователями. История загружается при каждом открытии диалога и при переподключении WebSocket (если DM активен).
 
 ## Протокол WebSocket сообщений
 
@@ -256,18 +262,60 @@ ws://localhost:8080/ws?user_id=user123&username=John
 }
 ```
 
+#### 6. Поиск пользователя (user_lookup)
+
+**Отправка клиентом:**
+```json
+{
+  "type": "user_lookup",
+  "content": "Alice"
+}
+```
+
+**Получение при успехе:**
+```json
+{
+  "type": "user_found",
+  "user_id": "alice_uid",
+  "username": "Alice",
+  "timestamp": "2026-06-02T20:25:00Z"
+}
+```
+
+**Получение при отсутствии:**
+```json
+{
+  "type": "user_not_found",
+  "content": "Alice",
+  "timestamp": "2026-06-02T20:25:00Z"
+}
+```
+
+#### 7. Загрузка истории приватных сообщений (load_dm_history)
+
+**Отправка клиентом:**
+```json
+{
+  "type": "load_dm_history",
+  "to_user_id": "user456"
+}
+```
+
+**Ответ:** сервер отправляет историю как последовательность сообщений типа `private`.
+
 ### Структура Message
 
 ```go
 type Message struct {
-    Type      string    `json:"type"`              // Тип сообщения
-    RoomID    string    `json:"room_id,omitempty"` // ID комнаты
-    UserID    string    `json:"user_id,omitempty"` // ID отправителя
-    Username  string    `json:"username,omitempty"`// Имя отправителя
-    ToUserID  string    `json:"to_user_id,omitempty"` // ID получателя (для private)
-    Content   string    `json:"content,omitempty"` // Содержимое
-    Timestamp time.Time `json:"timestamp"`         // Временная метка
-    Error     string    `json:"error,omitempty"`   // Текст ошибки
+    Type             MessageType `json:"type"`                         // Тип сообщения
+    RoomID           string      `json:"room_id,omitempty"`            // ID комнаты
+    UserID           string      `json:"user_id,omitempty"`            // ID отправителя
+    Username         string      `json:"username,omitempty"`           // Имя отправителя
+    ToUserID         string      `json:"to_user_id,omitempty"`         // ID получателя (для private)
+    Content          string      `json:"content,omitempty"`            // Содержимое
+    Timestamp        time.Time   `json:"timestamp"`                    // Временная метка
+    Error            string      `json:"error,omitempty"`              // Текст ошибки
+    ParticipantCount int         `json:"participant_count,omitempty"`  // Кол-во участников в комнате
 }
 ```
 
@@ -350,21 +398,112 @@ websocat "ws://localhost:8080/ws?user_id=bob&username=Bob"
 
 ### Автоматические тесты Go
 
+Всего **51 тест** в 6 файлах (~2600 строк). Запуск:
+
 ```bash
 cd server
-go test ./...
+go test ./... -count=1 -v
 ```
 
-#### Структура
+#### Файлы тестов
 
-- **`models/hub_test.go`** -- unit-тесты Hub (регистрация, сообщения, выход из комнаты)
-- **`models/hub_extended_test.go`** -- расширенные тесты Hub (дубликаты регистрации, изоляция комнат, конкурентные клиенты, приватные сообщения, история при входе, очистка пустых комнат, заполнение полей отправителя)
-- **`handlers/websocket_test.go`** -- интеграционные тесты WebSocket (чат, порядок сообщений, изоляция комнат, reconnect, burst disconnect, приватные сообщения, fallback username)
-- **`handlers/websocket_extended_test.go`** -- расширенные интеграционные тесты (невалидный JSON, история при входе, конкурентные сообщения)
+| Файл | Кол-во | Уровень | Что тестирует |
+|---|---|---|---|
+| `models/message_test.go` | 8 | unit | Создание сообщений (chat, private, error, user_joined, user_left), Client (AddRoom, RemoveRoom, SendMessage) |
+| `models/room_test.go` | 5 | unit | Room (AddClient, RemoveClient, Broadcast, BroadcastExclude, IsEmpty) |
+| `models/hub_test.go` | 7 | unit | Hub (RegisterClient, UnregisterClient, Broadcast, JoinRoom, ChatMessage, PrivateMessage, LeaveRoom) |
+| `models/hub_extended_test.go` | 11 | unit | Hub extended (DuplicateRegister, UnknownMessageType, BroadcastSenderIncluded, ConcurrentClients, RoomIsolation, EmptyRoomID, JoinSameRoomTwice, HistoryOnJoin, UnregisterWithRooms, PrivateMessageToOfflineUser, ChatMessageFillsSenderInfo) |
+| `handlers/websocket_test.go` | 9 | integration | WebSocket (Connection, ConnectionRequiresUserID, JoinRoom, ChatMessage, PrivateMessage, LeaveRoom, MultipleRooms, MessagePersistence, BroadcastToMultipleClients) |
+| `handlers/websocket_extended_test.go` | 11 | integration | WebSocket extended (InvalidJSON, HistoryOnJoin, ConcurrentMessages, DisconnectCleanup, RejoinRoom, MessageOrdering, BroadcastDoesNotLeakBetweenRooms, ServerHandlesMultipleDisconnects, UsernameFallback, PrivateMessageOnlyReachesRecipient, UnknownMessageType) |
+
+#### Описание тестов
+
+**`models/message_test.go`** (8 unit-тестов):
+
+| Тест | Описание |
+|---|---|
+| `TestNewChatMessage` | Проверяет создание chat-сообщения: заполнение Type, RoomID, UserID, Content, Timestamp |
+| `TestNewPrivateMessage` | Проверяет создание private-сообщения: Type, UserID, ToUserID, Content |
+| `TestNewErrorMessage` | Проверяет создание error-сообщения: Type, Error |
+| `TestNewUserJoinedMessage` | Проверяет создание уведомления user_joined: Type, RoomID, UserID |
+| `TestNewUserLeftMessage` | Проверяет создание уведомления user_left: Type, RoomID, UserID |
+| `TestClientAddRoom` | Client.AddRoom добавляет комнату в карту клиента, IsInRoom возвращает true |
+| `TestClientRemoveRoom` | Client.RemoveRoom удаляет комнату, IsInRoom возвращает false |
+| `TestClientSendMessage` | Client.SendMessage отправляет сообщение в буферизированный канал Send |
+
+**`models/room_test.go`** (5 unit-тестов):
+
+| Тест | Описание |
+|---|---|
+| `TestRoomAddClient` | Добавление клиента в комнату, проверка GetClientCount |
+| `TestRoomRemoveClient` | Удаление клиента из комнаты, проверка GetClientCount |
+| `TestRoomBroadcast` | Broadcast сообщения всем клиентам в комнате (3 клиента) |
+| `TestRoomBroadcastExclude` | Broadcast с исключением отправителя (excluded не получает) |
+| `TestRoomIsEmpty` | Новая комната пуста, после AddClient не пуста, после RemoveClient снова пуста |
+
+**`models/hub_test.go`** (7 unit-тестов):
+
+| Тест | Описание |
+|---|---|
+| `TestHubRegisterClient` | Регистрация клиента: проверка GetClientCount и сохранение User в Storage |
+| `TestHubUnregisterClient` | Отмена регистрации: проверка GetClientCount и закрытие канала Send |
+| `TestHubBroadcast` | Broadcast через Hub всем клиентам (3 клиента, без комнат) |
+| `TestHubJoinRoom` | Присоединение к комнате: IsInRoom, GetRoomCount, сохранение Room в Storage |
+| `TestHubChatMessage` | Отправка chat: оба клиента получают, сообщение сохраняется в Persister |
+| `TestHubPrivateMessage` | Приватное сообщение: получатель получает, отправитель получает echo с ToUserID |
+| `TestHubLeaveRoom` | Выход из комнаты: IsInRoom=false, пустая комната удаляется (GetRoomCount=0) |
+
+**`models/hub_extended_test.go`** (11 unit-тестов):
+
+| Тест | Описание |
+|---|---|
+| `TestHubDuplicateRegister` | Повторная регистрация того же клиента не увеличивает счётчик |
+| `TestHubUnknownMessageType` | Неизвестный тип сообщения возвращает error |
+| `TestHubBroadcastSenderIncluded` | Отправитель chat получает своё сообщение (broadcast без exclude) |
+| `TestHubConcurrentClients` | 10 конкурентных регистраций + 10 join + chat: все получают сообщение |
+| `TestHubRoomIsolation` | Два клиента в разных комнатах: сообщения не просачиваются |
+| `TestHubEmptyRoomID` | Join с пустым RoomID возвращает error |
+| `TestHubJoinSameRoomTwice` | Двойной join в одну комнату: клиент в комнате, счётчик = 1 |
+| `TestHubHistoryOnJoin` | При join клиент получает историю сообщений из Storage |
+| `TestHubUnregisterWithRooms` | Отмена регистрации очищает все комнаты клиента |
+| `TestHubPrivateMessageToOfflineUser` | PM офлайн-пользователю: echo отправителю, сообщение сохраняется |
+| `TestHubChatMessageFillsSenderInfo` | Chat сообщение: проставляются UserID, Username, Timestamp |
+
+**`handlers/websocket_test.go`** (9 интеграционных тестов):
+
+| Тест | Описание |
+|---|---|
+| `TestWebSocketConnection` | Подключение к WebSocket с валидными параметрами |
+| `TestWebSocketConnectionRequiresUserID` | Подключение без user_id возвращает 400 |
+| `TestWebSocketJoinRoom` | Join room: получение user_joined уведомления |
+| `TestWebSocketChatMessage` | Два клиента в комнате: chat достигает обоих, UserID заполнен |
+| `TestWebSocketPrivateMessage` | PM: получатель получает, отправитель получает echo, UserID/ToUserID корректны |
+| `TestWebSocketLeaveRoom` | Leave room: получение user_left уведомления |
+| `TestWebSocketMultipleRooms` | Два клиента в разных комнатах: сообщения изолированы |
+| `TestWebSocketMessagePersistence` | Chat сообщение сохраняется в Persister после отправки |
+| `TestWebSocketBroadcastToMultipleClients` | 3 клиента в одной комнате: все получают broadcast |
+
+**`handlers/websocket_extended_test.go`** (11 интеграционных тестов):
+
+| Тест | Описание |
+|---|---|
+| `TestWebSocketInvalidJSON` | Невалидный JSON от клиента возвращает error |
+| `TestWebSocketHistoryOnJoin` | При join клиент получает предзаполненную историю (3 сообщения) |
+| `TestWebSocketConcurrentMessages` | 5 клиентов отправляют сообщения конкурентно: все n\*n сообщений доставлены |
+| `TestWebSocketDisconnectCleanup` | После отключения клиента Hub очищает комнаты (GetClientCount=0, GetRoomCount=0) |
+| `TestWebSocketRejoinRoom` | Join → leave → join: корректное user_joined уведомление |
+| `TestWebSocketMessageOrdering` | Последовательные сообщения: порядок сохраняется на обоих клиентах |
+| `TestWebSocketBroadcastDoesNotLeakBetweenRooms` | 3 клиента, 2 комнаты: сообщения не просачиваются между комнатами |
+| `TestWebSocketServerHandlesMultipleDisconnects` | 20 конкурентных подключений/отключений: отсутствие panics |
+| `TestWebSocketUsernameFallback` | Подключение без username: работает с дефолтным "User_{id}" |
+| `TestWebSocketPrivateMessageOnlyReachesRecipient` | 3 клиента, PM от Alice к Bob: Charlie не получает |
+| `TestWebSocketUnknownMessageType` | Неизвестный тип сообщения: получение error |
 
 #### Mocks
 
 `models/mock.go` содержит `MockStorage` и `MockPersister` с thread-safe картами (`sync.Mutex`), так как тесты запускают Hub/WritePump goroutines, обращающиеся к ним конкурентно. Mocks расположены в пакете `models` (рядом с интерфейсами), что предотвращает циклический импорт.
+
+`MockStorage` поддерживает: Users, Rooms, RoomHistory, RoomMembers, Messages, `GetPrivateMessageHistory`, а также `UpsertUserFn` для кастомной логики. `MockPersister` собирает сообщения в слайс `Messages` для проверки сохранения.
 
 #### WritePump batching
 
@@ -592,12 +731,21 @@ npm run dev
 - **WebSocket соединение** - автоматическое подключение при монтировании
 - **Автоматический реконнект** - до 5 попыток с задержкой 3 секунды
 - **История сообщений** - получение последних 50 сообщений при входе в комнату
-- **Отправка сообщений** - `sendMessage(content, type, toUserId)`
+- **История приватных сообщений** - загрузка через `load_dm_history` при открытии диалога
+- **Participant count** - отслеживание количества участников в комнате
+- **Отправка сообщений** - `sendMessage(content, type, toUserId)` (chat и private)
 - **Переключение комнат** - `joinRoom(newRoomId)` с автоматическим выходом из предыдущей
+- **Поиск пользователей** - `lookupUser(username)` с Promise-based API
+- **DM контакты** - автоматическое сохранение и восстановление из localStorage
+- **Фильтрация ошибок** - ERROR сообщения не попадают в ленту комнаты
 - **Состояние соединения** - `isConnected`, `isReconnecting`
 
 ```javascript
-const { messages, isConnected, sendMessage, joinRoom } = useChat(roomId);
+const {
+  messages, isConnected, isReconnecting, participantCount,
+  sendMessage, joinRoom, disconnect,
+  dmContacts, setDmContacts, dmMessages, lookupUser,
+} = useChat(roomId);
 ```
 
 #### Context API
@@ -609,6 +757,10 @@ const { messages, isConnected, sendMessage, joinRoom } = useChat(roomId);
 - `currentRoom` - текущая комната
 - `setCurrentRoom()` - переключение комнаты
 - `updateUser()` - обновление данных пользователя
+- `theme` - текущая тема (`light` / `dark`)
+- `toggleTheme()` - переключение темы
+- `activeDmUser` - ID пользователя в активном DM диалоге (`null`, если не в DM)
+- `setActiveDmUser()` - открыть / закрыть DM диалог
 
 #### Компоненты
 
@@ -643,7 +795,14 @@ VITE_WS_URL=ws://localhost:8080/ws
 - **Reconnection logic** - автоматический реконнект с exponential backoff
 - **Room switching** - автоматический выход из предыдущей комнаты при переключении
 - **Message history** - загрузка истории через WebSocket при входе в комнату
-- **LocalStorage** - сохранение userId и username между сессиями
+- **Participant count** - отображение количества участников в заголовке комнаты
+- **Приватные сообщения** - DM между пользователями с поиском по имени
+- **DM история** - загрузка истории при открытии диалога, персистентность при офлайн-получателе
+- **Echo сообщений** - отправитель приватного сообщения получает echo для отображения в своей ленте
+- **Фильтрация ошибок** - ERROR сообщения не отображаются в ленте комнаты
+- **Тёмная тема** - переключение через CSS custom properties с сохранением в localStorage
+- **Runtime WebSocket URL** - автоопределение адреса из `window.location.host` (без build-time VITE_WS_URL)
+- **LocalStorage** - сохранение userId, username, темы и списка DM контактов между сессиями
 
 ## Docker
 
