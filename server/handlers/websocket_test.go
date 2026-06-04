@@ -255,11 +255,19 @@ func TestWebSocketPrivateMessage(t *testing.T) {
 		t.Errorf("Expected user_id 'alice', got %s", msg.UserID)
 	}
 
-	// Alice should not receive her own message
-	ws1.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-	_, _, err := ws1.ReadMessage()
-	if err == nil {
-		t.Error("Alice should not receive her own private message")
+	// Alice should receive an echo of her own private message
+	msg = receiveMessage(t, ws1, 1*time.Second)
+	if msg.Type != models.MessageTypePrivate {
+		t.Errorf("Expected private message echo, got %s", msg.Type)
+	}
+	if msg.Content != "Secret message" {
+		t.Errorf("Expected content 'Secret message', got %s", msg.Content)
+	}
+	if msg.UserID != "alice" {
+		t.Errorf("Expected user_id 'alice', got %s", msg.UserID)
+	}
+	if msg.ToUserID != "bob" {
+		t.Errorf("Expected to_user_id 'bob', got %s", msg.ToUserID)
 	}
 }
 

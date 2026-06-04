@@ -319,12 +319,21 @@ func TestHubPrivateMessage(t *testing.T) {
 		t.Error("Bob did not receive private message")
 	}
 
-	// Verify Alice did not receive her own message
+	// Verify Alice receives an echo of her own message
 	select {
-	case <-client1.Send:
-		t.Error("Alice should not receive her own private message")
-	case <-time.After(50 * time.Millisecond):
-		// Expected - no message for Alice
+	case msg := <-client1.Send:
+		var parsedMsg Message
+		if err := json.Unmarshal(msg, &parsedMsg); err != nil {
+			t.Fatalf("Failed to parse message: %v", err)
+		}
+		if parsedMsg.Type != MessageTypePrivate || parsedMsg.Content != "Hi Bob!" {
+			t.Errorf("Alice received wrong echo message: %+v", parsedMsg)
+		}
+		if parsedMsg.ToUserID != "bob" {
+			t.Errorf("Expected to_user_id 'bob', got %s", parsedMsg.ToUserID)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Alice did not receive private message echo")
 	}
 }
 

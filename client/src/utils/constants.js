@@ -11,6 +11,9 @@ export const MESSAGE_TYPES = {
   ERROR: 'error',
   USER_JOINED: 'user_joined',
   USER_LEFT: 'user_left',
+  USER_LOOKUP: 'user_lookup',
+  USER_FOUND: 'user_found',
+  USER_NOT_FOUND: 'user_not_found',
 };
 
 export const RECONNECT_DELAY = 3000;

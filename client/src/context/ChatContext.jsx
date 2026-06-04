@@ -12,6 +12,7 @@ export const ChatProvider = ({ children }) => {
   });
 
   const [currentRoom, setCurrentRoom] = useState('general');
+  const [activeDmUser, setActiveDmUser] = useState(null);
 
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('theme') || 'light';
@@ -46,6 +47,8 @@ export const ChatProvider = ({ children }) => {
         updateUser,
         theme,
         toggleTheme,
+        activeDmUser,
+        setActiveDmUser,
       }}
     >
       {children}

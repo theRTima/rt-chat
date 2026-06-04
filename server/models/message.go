@@ -26,6 +26,15 @@ const (
 
 	// MessageTypeUserLeft - уведомление о выходе пользователя из комнаты
 	MessageTypeUserLeft MessageType = "user_left"
+
+	// MessageTypeUserLookup - запрос поиска пользователя
+	MessageTypeUserLookup MessageType = "user_lookup"
+
+	// MessageTypeUserFound - ответ с найденным пользователем
+	MessageTypeUserFound MessageType = "user_found"
+
+	// MessageTypeUserNotFound - ответ: пользователь не найден
+	MessageTypeUserNotFound MessageType = "user_not_found"
 )
 
 // Message представляет структуру WebSocket сообщения
@@ -109,6 +118,25 @@ func NewUserLeftMessage(roomID, userID, username string) *Message {
 		RoomID:    roomID,
 		UserID:    userID,
 		Username:  username,
+		Timestamp: time.Now(),
+	}
+}
+
+// NewUserFoundMessage создает ответ на успешный поиск пользователя
+func NewUserFoundMessage(userID, username string) *Message {
+	return &Message{
+		Type:     MessageTypeUserFound,
+		UserID:   userID,
+		Username: username,
+		Timestamp: time.Now(),
+	}
+}
+
+// NewUserNotFoundMessage создает ответ об отсутствии пользователя
+func NewUserNotFoundMessage(username string) *Message {
+	return &Message{
+		Type:     MessageTypeUserNotFound,
+		Content:  username,
 		Timestamp: time.Now(),
 	}
 }

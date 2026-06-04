@@ -9,11 +9,26 @@ export const useChat = (roomId) => {
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
 
+  // DM state
+  const [dmContacts, setDmContacts] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('dmContacts') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [dmMessages, setDmMessages] = useState({});
   const wsRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef(null);
   const currentRoomRef = useRef(null);
   const roomGenRef = useRef(0);
+  const lookupResolveRef = useRef(null);
+
+  // Persist contacts
+  useEffect(() => {
+    localStorage.setItem('dmContacts', JSON.stringify(dmContacts));
+  }, [dmContacts]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -39,11 +54,41 @@ export const useChat = (roomId) => {
             if (!part) continue;
             const message = JSON.parse(part);
 
-            // Track participant count from system messages, but don't
-            // show them in the message feed
             if (message.type === MESSAGE_TYPES.USER_JOINED || message.type === MESSAGE_TYPES.USER_LEFT) {
               if (typeof message.participant_count === 'number') {
                 setParticipantCount(message.participant_count);
+              }
+              continue;
+            }
+
+            if (message.type === MESSAGE_TYPES.PRIVATE) {
+              const otherId = message.user_id === userId ? message.to_user_id : message.user_id;
+              const otherUsername = message.user_id === userId ? message.to_user_id : message.username;
+
+              setDmContacts((prev) => {
+                if (prev.some((c) => c.userId === otherId)) return prev;
+                return [...prev, { userId: otherId, username: otherUsername || otherId }];
+              });
+
+              setDmMessages((prev) => {
+                const userMsgs = prev[otherId] || [];
+                return { ...prev, [otherId]: [...userMsgs, message] };
+              });
+              continue;
+            }
+
+            if (message.type === MESSAGE_TYPES.USER_FOUND) {
+              if (lookupResolveRef.current) {
+                lookupResolveRef.current({ found: true, userId: message.user_id, username: message.username });
+                lookupResolveRef.current = null;
+              }
+              continue;
+            }
+
+            if (message.type === MESSAGE_TYPES.USER_NOT_FOUND) {
+              if (lookupResolveRef.current) {
+                lookupResolveRef.current({ found: false });
+                lookupResolveRef.current = null;
               }
               continue;
             }
@@ -135,6 +180,30 @@ export const useChat = (roomId) => {
     }
   }, [roomId]);
 
+  const lookupUser = useCallback((lookupUsername) => {
+    return new Promise((resolve) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        resolve({ found: false });
+        return;
+      }
+
+      lookupResolveRef.current = resolve;
+
+      const message = {
+        type: MESSAGE_TYPES.USER_LOOKUP,
+        content: lookupUsername,
+      };
+      wsRef.current.send(JSON.stringify(message));
+
+      setTimeout(() => {
+        if (lookupResolveRef.current === resolve) {
+          lookupResolveRef.current = null;
+          resolve({ found: false, timeout: true });
+        }
+      }, 5000);
+    });
+  }, []);
+
   const joinRoom = useCallback((newRoomId) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       return;
@@ -184,5 +253,9 @@ export const useChat = (roomId) => {
     sendMessage,
     joinRoom,
     disconnect,
+    dmContacts,
+    setDmContacts,
+    dmMessages,
+    lookupUser,
   };
 };

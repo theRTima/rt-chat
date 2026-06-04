@@ -92,6 +92,22 @@
   font-weight: 400;
 }
 
+.back-button {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 0 0.25rem;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.back-button:hover {
+  color: var(--text-primary);
+}
+
 .connection-status {
   font-size: 0.875rem;
   font-weight: 500;

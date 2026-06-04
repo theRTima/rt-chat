@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,6 +17,9 @@ type Hub struct {
 
 	// Карта клиентов по UserID для приватных сообщений
 	userClients map[string]*Client
+
+	// Карта клиентов по Username (в нижнем регистре) для поиска
+	userByUsername map[string]*Client
 
 	// Комнаты (map: roomID -> Room)
 	rooms map[string]*Room
@@ -62,14 +66,15 @@ type ClientMessage struct {
 // NewHub создает новый Hub
 func NewHub(storage Storage) *Hub {
 	return &Hub{
-		Broadcast:   make(chan []byte, 256),
-		Register:    make(chan *Client),
-		Unregister:  make(chan *Client),
-		Message:     make(chan *ClientMessage, 256),
-		clients:     make(map[*Client]bool),
-		userClients: make(map[string]*Client),
-		rooms:       make(map[string]*Room),
-		Storage:     storage,
+		Broadcast:      make(chan []byte, 256),
+		Register:       make(chan *Client),
+		Unregister:     make(chan *Client),
+		Message:        make(chan *ClientMessage, 256),
+		clients:        make(map[*Client]bool),
+		userClients:    make(map[string]*Client),
+		userByUsername: make(map[string]*Client),
+		rooms:          make(map[string]*Room),
+		Storage:        storage,
 	}
 }
 
@@ -85,6 +90,9 @@ func (h *Hub) Run() {
 			h.clients[client] = true
 			if client.UserID != "" {
 				h.userClients[client.UserID] = client
+				if client.Username != "" {
+					h.userByUsername[strings.ToLower(client.Username)] = client
+				}
 			}
 			h.mu.Unlock()
 
@@ -122,6 +130,12 @@ func (h *Hub) Run() {
 				delete(h.clients, client)
 				if client.UserID != "" {
 					delete(h.userClients, client.UserID)
+					if client.Username != "" {
+						key := strings.ToLower(client.Username)
+						if c, ok := h.userByUsername[key]; ok && c == client {
+							delete(h.userByUsername, key)
+						}
+					}
 				}
 				close(client.Send)
 				log.Printf("Client %s disconnected. Total clients: %d", client.UserID, len(h.clients))
@@ -172,6 +186,9 @@ func (h *Hub) handleMessage(client *Client, msg *Message) {
 
 	case MessageTypePrivate:
 		h.handlePrivateMessage(client, msg)
+
+	case MessageTypeUserLookup:
+		h.handleUserLookup(client, msg)
 
 	default:
 		// Неизвестный тип сообщения
@@ -359,13 +376,33 @@ func (h *Hub) handlePrivateMessage(client *Client, msg *Message) {
 	// Отправляем сообщение получателю
 	recipient.SendMessage(msg)
 
+	// Отправляем эхо отправителю, чтобы он увидел сообщение в своих DM
+	client.SendMessage(msg)
+
 	// Асинхронно сохраняем сообщение через persister (не блокируем отправку)
 	if client.Persister != nil {
 		client.Persister.Enqueue(msg)
 	}
 
-	// Отправляем подтверждение отправителю (опционально)
 	log.Printf("Private message from %s to %s delivered", client.UserID, msg.ToUserID)
+}
+
+// handleUserLookup обрабатывает запрос поиска пользователя по имени
+func (h *Hub) handleUserLookup(client *Client, msg *Message) {
+	if msg.Content == "" {
+		client.SendMessage(NewErrorMessage("Username is required"))
+		return
+	}
+
+	h.mu.RLock()
+	found, exists := h.userByUsername[strings.ToLower(msg.Content)]
+	h.mu.RUnlock()
+
+	if exists {
+		client.SendMessage(NewUserFoundMessage(found.UserID, found.Username))
+	} else {
+		client.SendMessage(NewUserNotFoundMessage(msg.Content))
+	}
 }
 
 // broadcastToRoom отправляет сообщение всем клиентам в комнате

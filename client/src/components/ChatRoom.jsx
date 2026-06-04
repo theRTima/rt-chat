@@ -1,17 +1,47 @@
 import React from 'react';
 import { useChatContext } from '../context/ChatContext';
 import { useChat } from '../hooks/useChat';
+import { MESSAGE_TYPES } from '../utils/constants';
 import RoomSelector from './RoomSelector';
 import MessageFeed from './MessageFeed';
 import MessageInput from './MessageInput';
 import './ChatRoom.css';
 
 const ChatRoom = () => {
-  const { currentRoom, username, theme, toggleTheme } = useChatContext();
-  const { messages, isConnected, isReconnecting, participantCount, sendMessage } = useChat(currentRoom);
+  const { currentRoom, username, theme, toggleTheme, activeDmUser, setActiveDmUser } = useChatContext();
+  const {
+    messages, isConnected, isReconnecting, participantCount,
+    sendMessage, dmContacts, dmMessages, lookupUser,
+  } = useChat(currentRoom);
 
   const handleSendMessage = (content) => {
-    sendMessage(content);
+    if (activeDmUser) {
+      sendMessage(content, MESSAGE_TYPES.PRIVATE, activeDmUser);
+    } else {
+      sendMessage(content);
+    }
+  };
+
+  const activeDmMessages = activeDmUser ? (dmMessages[activeDmUser] || []) : [];
+
+  const getHeaderTitle = () => {
+    if (activeDmUser) {
+      const contact = dmContacts.find((c) => c.userId === activeDmUser);
+      return contact ? contact.username : activeDmUser;
+    }
+    return `# ${currentRoom}`;
+  };
+
+  const getParticipantInfo = () => {
+    if (activeDmUser) return null;
+    if (participantCount > 0) {
+      return `${participantCount} участников`;
+    }
+    return null;
+  };
+
+  const handleBackToChannels = () => {
+    setActiveDmUser(null);
   };
 
   return (
@@ -26,17 +56,26 @@ const ChatRoom = () => {
             </div>
           </div>
         </div>
-        <RoomSelector />
+        <RoomSelector
+          dmContacts={dmContacts}
+          dmMessages={dmMessages}
+          onLookupUser={lookupUser}
+        />
       </div>
 
       <div className="chat-main">
-          <div className="chat-header">
-            <div className="chat-header-left">
-              <h2># {currentRoom}</h2>
-              {participantCount > 0 && (
-                <span className="participant-count">{participantCount} участников</span>
-              )}
-            </div>
+        <div className="chat-header">
+          <div className="chat-header-left">
+            {activeDmUser && (
+              <button className="back-button" onClick={handleBackToChannels} title="Назад к каналам">
+                &larr;
+              </button>
+            )}
+            <h2>{getHeaderTitle()}</h2>
+            {getParticipantInfo() && (
+              <span className="participant-count">{getParticipantInfo()}</span>
+            )}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <button className="theme-toggle" onClick={toggleTheme}>
               {theme === 'light' ? 'Темная' : 'Светлая'}
@@ -47,7 +86,7 @@ const ChatRoom = () => {
           </div>
         </div>
 
-        <MessageFeed messages={messages} />
+        <MessageFeed messages={activeDmUser ? activeDmMessages : messages} />
         <MessageInput onSendMessage={handleSendMessage} disabled={!isConnected} />
       </div>
     </div>
