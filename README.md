@@ -355,7 +355,7 @@ go build -o bin/server .
 
 - `ws://localhost:8080/ws?user_id=<id>&username=<name>` -- WebSocket endpoint для подключения клиентов
 - `http://localhost:8080/health` -- health check endpoint
-- `http://localhost:8080/stats` -- информация о количестве подключенных клиентов
+- `http://localhost:8080/debug` -- JSON с диагностикой: clients, attempts, upgrade_failures, accepts, goroutines, rooms
 
 ### Тестирование вручную (websocat)
 
@@ -550,6 +550,26 @@ go run . -target 1000 -server myhost:8080 -skip-check
 3. **ReadPump**: каждый клиент читает входящие фреймы и детектирует свой собственный echo (сверяя `user_id`). Замеряется round-trip latency от отправки до получения.
 4. **Сбор статистики**: thread-safe `statsCollector` с `atomic` счётчиками и `sync.Mutex` для гистограммы задержек.
 
+#### Диагностика сервера
+
+Сервер предоставляет `/debug` endpoint с JSON-диагностикой:
+
+- `clients` -- количество клиентов, зарегистрированных в Hub
+- `attempts` -- сколько раз была вызвана `ServeWs` (обработчик WebSocket)
+- `upgrade_failures` -- количество неудачных WebSocket upgrade
+- `accepts` -- сколько TCP соединений было принято (через `countingListener`)
+- `goroutines` -- количество активных goroutine на момент запроса
+- `rooms` -- количество активных комнат
+
+Сравнение этих метрик позволяет определить узкое место при нагрузочном тестировании:
+
+| accepts | attempts | clients | upgrade_failures | Вывод |
+|---------|----------|---------|------------------|-------|
+| ~1000 | ~1000 | ~1000 | 0 | TCP bottleneck (сервер не принимает соединения) |
+| ~10000 | ~1000 | ~1000 | 0 | HTTP dispatch bottleneck (запросы не доходят до handler) |
+| ~10000 | ~10000 | ~1000 | 0 | WebSocket upgrade failure |
+| ~10000 | ~10000 | ~10000 | 0 | Проблема после Hub (каналы или persistence)
+
 #### Вывод
 
 ```
@@ -574,11 +594,16 @@ Latency:
 
 Для 10,000 одновременных WebSocket соединений необходимо увеличить лимит открытых файловых дескрипторов. Скрипт содержит комментарии с инструкциями для macOS и Linux в начале `main.go`.
 
-#### Запуск локального генератора
+#### Запуск генератора на macOS
 
-macOS может выступать генератором нагрузки на удалённый Linux-сервер. 10,000 исходящих TCP-соединений к одному `IP:PORT` вполне укладываются в стандартный диапазон эфемерных портов macOS (`49152-65535`, ~16384 порта).
+macOS может выступать генератором нагрузки на удалённый Linux-сервер, но имеет ограничения:
 
-Настройка перед запуском:
+- **Установлено**: при тестах с удалённого сервера (Linux) чат-сервер стабильно принимает 2000+ соединений (максимальное тестированное значение).
+- **macOS как генератор**: при запуске loadtest с macOS на удалённый Linux-сервер наблюдалось ~1000 успешных соединений. Дальнейшие соединения не доходили до `Accept()` на сервере (`ListenOverflows: 0`), что указывает на ограничение на стороне macOS, а не сервера.
+
+**Рекомендация**: для нагрузочного тестирования с целевым значением >2000 используйте выделенный Linux-генератор (см. следующий раздел) или запускайте loadtest из Docker-контейнера на том же сервере.
+
+Настройка перед запуском (если нужно тестировать с macOS):
 
 ```bash
 # 1. Лимит открытых файлов (системный)
@@ -600,16 +625,12 @@ ulimit -n
 sysctl net.inet.ip.portrange.first net.inet.ip.portrange.last kern.maxfiles
 ```
 
-**Важно**: `kern.maxfiles` и `launchctl limit maxfiles` требуют перезагрузки для постоянного эффекта. Без шага 4 динамический диапазон 49152-65535 даёт ~16384 порта, чего достаточно для 10K + резерв.
-
 Запуск теста на macOS:
 
 ```bash
 cd loadtest
-go run . -target 10000 -rate 500 -server <LINUX_SERVER_IP>:8080 -messengers 20 -duration 60s
+go run . -target 1000 -rate 200 -server <LINUX_SERVER_IP>:8080 -messengers 10 -duration 30s
 ```
-
-Ожидаемая latency при тесте через интернет: 10-50ms (добавляется сетевой RTT). Остальные метрики (успешность подключений, delivery rate) не зависят от ОС генератора.
 
 #### Запуск с отдельного Linux сервера
 
@@ -672,6 +693,23 @@ go run . -target 10000 -rate 500 -server <SERVER_IP>:8080 -messengers 20 -durati
 - `-messengers 20` — 20 клиентов отправляют сообщения каждые 3 секунды = ~6.6 msg/s.
 - `rate` не должен превышать возможности сети и CPU сервера. Начните с 200-500.
 
+##### 3a. Запуск теста из контейнера сервера (container-to-container)
+
+Для изоляции серверной части от сетевых ограничений генератора можно запустить loadtest прямо в контейнере backend:
+
+```bash
+# Скопировать loadtest в контейнер
+docker compose cp loadtest backend:/tmp/loadtest
+
+# Установить Go и запустить тест (Alpine runtime не содержит Go по умолчанию)
+docker compose exec backend sh -c '
+  apk add go
+  cd /tmp/loadtest
+  go mod edit -go=1.21
+  go run . -server localhost:8080 -target 5000 -rate 500 -skip-check
+'
+```
+
 ##### 4. Мониторинг во время теста
 
 На генераторе:
@@ -706,10 +744,29 @@ sar -n TCP,DEV 1 5             # TCP-статистика
 | `cannot assign requested address` | Исчерпаны локальные порты | Увеличить `ip_local_port_range`, включить `tcp_tw_reuse` |
 | Массовые отваливания после 5K | nginx/server backlog | Увеличить `net.core.somaxconn` |
 | Высокая latency (>100ms) | Утилизация CPU/сети | Уменьшить `rate` или увеличить ресурсы сервера |
+| ~1000 коннектов с macOS, 2000+ из контейнера | Ограничение на стороне macOS | Использовать Linux-генератор или запускать loadtest из Docker контейнера (`docker compose exec`) |
 
 ##### 6. Результаты
 
-После завершения теста скрипт выводит итоговую сводку. Ожидаемые метрики для чата на Go:
+После завершения теста скрипт выводит итоговую сводку. Пример результата (2000 коннектов, container-to-container):
+
+```
+Connected:         2000
+Failed:            0
+Success rate:      100.0%
+Messages sent:     70
+Received (echo):   70
+Delivery rate:     100.0%
+Latency:
+  Average:          2.9ms
+  P50 (median):     2.8ms
+  P95:              5.2ms
+  P99:              6.4ms
+  Min:              1.2ms
+  Max:              6.4ms
+```
+
+Ожидаемые метрики для чата на Go:
 
 - **Успешных подключений**: 99.9%+ (единичные ошибки при пиковой нагрузке допустимы)
 - **Delivery rate**: 99.5%+ (потери 0.5% при переполнении Send каналов допустимы)
@@ -878,3 +935,156 @@ docker build --build-arg VITE_WS_URL=ws://localhost:8080/ws -t rt-chat-frontend 
 - Frontend использует nginx для раздачи статики
 - Backend ожидает готовности PostgreSQL через healthcheck (pg_isready)
 - Данные PostgreSQL сохраняются в Docker volume `pgdata`
+
+## Security (Безопасность)
+
+### SAST (Static Application Security Testing)
+
+Статический анализ для Go backend и React frontend.
+
+#### Go: `go vet`
+
+Встроенный анализатор Go. Проверяет подозрительные конструкции, неиспользуемый код, проблемы синхронизации:
+
+```bash
+cd server
+go vet ./...
+```
+
+#### Go: `staticcheck`
+
+Go-анализатор от Dominik Honnef (установка: `go install honnef.co/go/tools/cmd/staticcheck@latest`):
+
+```bash
+staticcheck ./...
+```
+
+Обнаруживает:
+- Неиспользуемый код, переменные, функции
+- Потенциальные проблемы производительности
+- Стилистические проблемы
+- Неправильную обработку ошибок
+
+#### Go: `gosec`
+
+Сканер безопасности для Go-кода (установка: `go install github.com/securego/gosec/v2/cmd/gosec@latest`):
+
+```bash
+cd server
+gosec ./...
+```
+
+Проверяет:
+- Инъекции (SQL, OS command)
+- Утечки информации в логах и ошибках
+- Использование небезопасных криптографических функций
+- Race conditions
+- Небезопасное использование TLS
+- Проблемы с правами доступа к файлам
+
+#### Go: `govulncheck`
+
+Проверка зависимостей Go на известные уязвимости (установка: `go install golang.org/x/vuln/cmd/govulncheck@latest`):
+
+```bash
+cd server
+govulncheck ./...
+```
+
+Использует базу данных уязвимостей Go (https://vuln.go.dev). Проверяет все зависимости (включая транзитивные) на известные CVE.
+
+#### Frontend: ESLint с security-плагинами
+
+```bash
+cd client
+npx eslint src/
+
+# Дополнительно: eslint-plugin-security
+npm install --save-dev eslint-plugin-security
+npx eslint src/
+```
+
+### Dependency Check (Проверка зависимостей)
+
+#### Go: `go mod verify`
+
+Проверяет целостность загруженных модулей:
+
+```bash
+cd server
+go mod verify
+```
+
+#### Go: `go mod tidy`
+
+Приводит go.mod и go.sum в актуальное состояние, удаляет неиспользуемые зависимости:
+
+```bash
+cd server
+go mod tidy
+```
+
+#### Go: обновление зависимостей
+
+```bash
+cd server
+go get -u ./...          # Обновление всех зависимостей
+go mod tidy              # Очистка после обновления
+go test ./...            # Проверка, что всё работает
+```
+
+#### Frontend: `npm audit`
+
+Проверка npm-пакетов на известные уязвимости:
+
+```bash
+cd client
+npm audit                # Показать уязвимости
+npm audit fix            # Автоматическое исправление (где возможно)
+npm audit fix --force    # Принудительное исправление (может сломать API)
+```
+
+#### Frontend: обновление зависимостей
+
+```bash
+cd client
+npm outdated             # Показать устаревшие пакеты
+npm update               # Безопасное обновление в рамках semver
+npm install -g npm-check-updates
+ncu -u                   # Обновление package.json до последних версий
+npm install              # Установка обновлённых зависимостей
+```
+
+### Рекомендации по CI/CD
+
+Для автоматического запуска проверок в GitHub Actions:
+
+```yaml
+name: Security & Lint
+on: [push, pull_request]
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Go vet
+        working-directory: server
+        run: go vet ./...
+
+      - name: gosec
+        working-directory: server
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec ./...
+
+      - name: govulncheck
+        working-directory: server
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: npm audit
+        working-directory: client
+        run: npm audit --audit-level=high
+```
