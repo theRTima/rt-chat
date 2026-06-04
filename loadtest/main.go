@@ -211,17 +211,22 @@ func readPump(conn *websocket.Conn, userID string, stats *statsCollector) {
 			continue
 		}
 
-		var msg clientMessage
-		if err := json.Unmarshal(data, &msg); err != nil {
-			continue
-		}
-		// Only measure latency for our own echo (server broadcasts to all)
-		if msg.UserID == userID && strings.HasPrefix(msg.Content, "__lat_") {
-			ts, ok := extractTimestamp(msg.Content)
-			if ok {
-				latency := time.Duration(time.Now().UnixNano() - ts)
-				stats.recordLatency(latency)
-				atomic.AddInt64(&stats.msgRecv, 1)
+		// WritePump batches multiple JSON messages with \n separators
+		for _, segment := range bytes.Split(data, []byte{'\n'}) {
+			if len(segment) == 0 {
+				continue
+			}
+			var msg clientMessage
+			if err := json.Unmarshal(segment, &msg); err != nil {
+				continue
+			}
+			if msg.UserID == userID && strings.HasPrefix(msg.Content, "__lat_") {
+				ts, ok := extractTimestamp(msg.Content)
+				if ok {
+					latency := time.Duration(time.Now().UnixNano() - ts)
+					stats.recordLatency(latency)
+					atomic.AddInt64(&stats.msgRecv, 1)
+				}
 			}
 		}
 	}
@@ -425,7 +430,7 @@ func main() {
 			fmt.Println()
 			os.Exit(1)
 		}
-		fmt.Println("  ✓ Reachable and responding\n")
+		fmt.Println("  ✓ Reachable and responding")
 	}
 
 	stats := &statsCollector{}
