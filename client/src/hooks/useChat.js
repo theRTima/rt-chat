@@ -3,7 +3,7 @@ import { useChatContext } from '../context/ChatContext';
 import { WS_URL, MESSAGE_TYPES, RECONNECT_DELAY, MAX_RECONNECT_ATTEMPTS } from '../utils/constants';
 
 export const useChat = (roomId) => {
-  const { userId, username } = useChatContext();
+  const { userId, username, activeDmUser } = useChatContext();
   const [messages, setMessages] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);

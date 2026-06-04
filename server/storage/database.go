@@ -97,6 +97,7 @@ func (db *DB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
 	CREATE INDEX IF NOT EXISTS idx_messages_to_user_id ON messages(to_user_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_messages_dm ON messages(message_type, user_id, to_user_id, created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS room_members (
 		id SERIAL PRIMARY KEY,

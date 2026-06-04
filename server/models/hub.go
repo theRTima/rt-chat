@@ -50,6 +50,7 @@ type Storage interface {
 	GetRoomHistory(ctx context.Context, roomID string, limit int) ([]*Message, error)
 	AddRoomMember(ctx context.Context, roomID, userID string) error
 	RemoveRoomMember(ctx context.Context, roomID, userID string) error
+	GetPrivateMessageHistory(ctx context.Context, userID1, userID2 string, limit int) ([]*Message, error)
 }
 
 // MessagePersister интерфейс для асинхронного сохранения сообщений
@@ -189,6 +190,9 @@ func (h *Hub) handleMessage(client *Client, msg *Message) {
 
 	case MessageTypeUserLookup:
 		h.handleUserLookup(client, msg)
+
+	case MessageTypeLoadDMHistory:
+		h.handleLoadDMHistory(client, msg)
 
 	default:
 		// Неизвестный тип сообщения
@@ -363,28 +367,54 @@ func (h *Hub) handlePrivateMessage(client *Client, msg *Message) {
 	msg.Username = client.Username
 	msg.Timestamp = time.Now()
 
-	// Находим получателя
+	// Находим получателя и отправляем, если онлайн
 	h.mu.RLock()
 	recipient, exists := h.userClients[msg.ToUserID]
 	h.mu.RUnlock()
 
-	if !exists {
-		client.SendMessage(NewErrorMessage("Recipient not found or offline"))
-		return
+	if exists {
+		recipient.SendMessage(msg)
 	}
 
-	// Отправляем сообщение получателю
-	recipient.SendMessage(msg)
-
-	// Отправляем эхо отправителю, чтобы он увидел сообщение в своих DM
+	// Отправляем эхо отправителю
 	client.SendMessage(msg)
 
-	// Асинхронно сохраняем сообщение через persister (не блокируем отправку)
+	// Сохраняем сообщение в БД (даже если получатель офлайн)
 	if client.Persister != nil {
 		client.Persister.Enqueue(msg)
 	}
 
-	log.Printf("Private message from %s to %s delivered", client.UserID, msg.ToUserID)
+	if exists {
+		log.Printf("Private message from %s to %s delivered", client.UserID, msg.ToUserID)
+	}
+}
+
+// handleLoadDMHistory обрабатывает запрос загрузки истории личных сообщений
+func (h *Hub) handleLoadDMHistory(client *Client, msg *Message) {
+	if msg.ToUserID == "" {
+		client.SendMessage(NewErrorMessage("User ID is required"))
+		return
+	}
+
+	if h.Storage == nil {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		history, err := h.Storage.GetPrivateMessageHistory(ctx, client.UserID, msg.ToUserID, 100)
+		if err != nil {
+			log.Printf("Failed to load DM history: %v", err)
+			return
+		}
+
+		for _, historyMsg := range history {
+			client.SendMessage(historyMsg)
+		}
+		log.Printf("Sent %d DM history messages to user %s for conversation with %s", len(history), client.UserID, msg.ToUserID)
+	}()
 }
 
 // handleUserLookup обрабатывает запрос поиска пользователя по имени

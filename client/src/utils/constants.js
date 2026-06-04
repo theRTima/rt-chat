@@ -14,6 +14,7 @@ export const MESSAGE_TYPES = {
   USER_LOOKUP: 'user_lookup',
   USER_FOUND: 'user_found',
   USER_NOT_FOUND: 'user_not_found',
+  LOAD_DM_HISTORY: 'load_dm_history',
 };
 
 export const RECONNECT_DELAY = 3000;

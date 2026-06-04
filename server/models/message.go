@@ -35,6 +35,9 @@ const (
 
 	// MessageTypeUserNotFound - ответ: пользователь не найден
 	MessageTypeUserNotFound MessageType = "user_not_found"
+
+	// MessageTypeLoadDMHistory - запрос загрузки истории личных сообщений
+	MessageTypeLoadDMHistory MessageType = "load_dm_history"
 )
 
 // Message представляет структуру WebSocket сообщения

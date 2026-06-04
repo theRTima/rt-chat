@@ -83,6 +83,23 @@ func (m *MockStorage) RemoveRoomMember(ctx context.Context, roomID, userID strin
 	return nil
 }
 
+func (m *MockStorage) GetPrivateMessageHistory(ctx context.Context, userID1, userID2 string, limit int) ([]*Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*Message
+	for _, msg := range m.Messages {
+		if msg.Type == MessageTypePrivate &&
+			((msg.UserID == userID1 && msg.ToUserID == userID2) ||
+				(msg.UserID == userID2 && msg.ToUserID == userID1)) {
+			result = append(result, msg)
+		}
+	}
+	if len(result) > limit {
+		result = result[len(result)-limit:]
+	}
+	return result, nil
+}
+
 // MockPersister is a mock implementation of MessagePersister for testing
 type MockPersister struct {
 	Messages []*Message

@@ -71,6 +71,10 @@ func (m *mockStorage) RemoveRoomMember(_ context.Context, roomID, userID string)
 	return nil
 }
 
+func (m *mockStorage) GetPrivateMessageHistory(_ context.Context, userID1, userID2 string, _ int) ([]*Message, error) {
+	return nil, nil
+}
+
 type mockPersister struct {
 	messages []*Message
 }
@@ -421,15 +425,30 @@ func TestHubPrivateMessageToOfflineUser(t *testing.T) {
 		Client:  c,
 		Message: &Message{Type: MessageTypePrivate, ToUserID: "nonexistent", Content: "hi"},
 	}
+	time.Sleep(100 * time.Millisecond)
 
+	// Should receive echo (not error)
 	select {
 	case msg := <-c.Send:
 		var parsed Message
-		if json.Unmarshal(msg, &parsed) == nil && parsed.Type != MessageTypeError {
-			t.Errorf("Expected error, got %s", parsed.Type)
+		if json.Unmarshal(msg, &parsed) == nil {
+			if parsed.Type != MessageTypePrivate {
+				t.Errorf("Expected private message echo, got %s", parsed.Type)
+			}
+			if parsed.Content != "hi" {
+				t.Errorf("Expected content 'hi', got %s", parsed.Content)
+			}
+			if parsed.UserID != "online" {
+				t.Errorf("Expected UserID 'online', got %s", parsed.UserID)
+			}
 		}
-	case <-time.After(100 * time.Millisecond):
-		t.Error("No error for offline recipient")
+	case <-time.After(200 * time.Millisecond):
+		t.Error("No echo for offline recipient")
+	}
+
+	// Message should be persisted
+	if len(p.messages) != 1 {
+		t.Errorf("Expected 1 persisted message, got %d", len(p.messages))
 	}
 }
 
