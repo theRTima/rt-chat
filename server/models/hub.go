@@ -68,9 +68,9 @@ type ClientMessage struct {
 func NewHub(storage Storage) *Hub {
 	return &Hub{
 		Broadcast:      make(chan []byte, 1024),
-		Register:       make(chan *Client),
-		Unregister:     make(chan *Client),
-		Message:        make(chan *ClientMessage, 1024),
+		Register:       make(chan *Client, 1024),
+		Unregister:     make(chan *Client, 1024),
+		Message:        make(chan *ClientMessage, 4096),
 		clients:        make(map[*Client]bool),
 		userClients:    make(map[string]*Client),
 		userByUsername: make(map[string]*Client),
