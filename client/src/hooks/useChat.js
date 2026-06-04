@@ -93,6 +93,11 @@ export const useChat = (roomId) => {
               continue;
             }
 
+            if (message.type === MESSAGE_TYPES.ERROR) {
+              console.warn('Server error:', message.error || message.content);
+              continue;
+            }
+
             setMessages((prev) => {
               if (roomGenRef.current !== gen) return prev;
               return [...prev, message];
@@ -236,6 +241,16 @@ export const useChat = (roomId) => {
       joinRoom(roomId);
     }
   }, [roomId, isConnected, joinRoom]);
+
+  useEffect(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN && activeDmUser) {
+      setDmMessages((prev) => ({ ...prev, [activeDmUser]: [] }));
+      wsRef.current.send(JSON.stringify({
+        type: MESSAGE_TYPES.LOAD_DM_HISTORY,
+        to_user_id: activeDmUser,
+      }));
+    }
+  }, [activeDmUser, isConnected]);
 
   useEffect(() => {
     connect();
