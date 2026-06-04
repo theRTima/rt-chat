@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
+	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -15,6 +18,8 @@ import (
 	"github.com/theRTima/rt-chat/models"
 	"github.com/theRTima/rt-chat/storage"
 )
+
+var acceptedConns int64
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP service address")
@@ -48,10 +53,10 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/debug", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		count := hub.GetClientCount()
-		w.Write([]byte(`{"clients": ` + strconv.Itoa(count) + `}`))
+		fmt.Fprintf(w, `{"clients": %d, "attempts": %d, "upgrade_failures": %d, "accepts": %d, "goroutines": %d, "rooms": %d}`,
+			hub.GetClientCount(), handlers.TotalAttempts, handlers.UpgradeFailures, atomic.LoadInt64(&acceptedConns), runtime.NumGoroutine(), hub.GetRoomCount())
 	})
 
 	sigCh := make(chan os.Signal, 1)
@@ -67,15 +72,34 @@ func main() {
 
 	log.Printf("Starting server on %s", *addr)
 
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatal("Listen error: ", err)
+	}
+
 	srv := &http.Server{
-		Addr:              *addr,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20, // 1MB
 	}
 
-	err = srv.ListenAndServe()
+	err = srv.Serve(&countingListener{Listener: ln})
 	if err != nil {
 		log.Fatal("ListenAndServe error: ", err)
 	}
+}
+
+type countingListener struct {
+	net.Listener
+}
+
+func (cl *countingListener) Accept() (net.Conn, error) {
+	conn, err := cl.Listener.Accept()
+	if err == nil {
+		curr := atomic.AddInt64(&acceptedConns, 1)
+		if curr%100 == 0 || curr <= 5 {
+			log.Printf("[diag] Accepted TCP conn: %d", curr)
+		}
+	}
+	return conn, err
 }

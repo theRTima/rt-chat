@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/gorilla/websocket"
 	"github.com/theRTima/rt-chat/models"
@@ -19,8 +20,16 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+var TotalAttempts int64
+var UpgradeFailures int64
+
 // ServeWs обрабатывает WebSocket запросы от клиентов
 func ServeWs(hub *models.Hub, persister models.MessagePersister, w http.ResponseWriter, r *http.Request) {
+	curr := atomic.AddInt64(&TotalAttempts, 1)
+	if curr%100 == 0 || curr <= 5 {
+		log.Printf("[diag] ServeWs called: %d (hub clients: %d)", curr, hub.GetClientCount())
+	}
+
 	// Получаем параметры из query string
 	userID := r.URL.Query().Get("user_id")
 	username := r.URL.Query().Get("username")
@@ -37,7 +46,8 @@ func ServeWs(hub *models.Hub, persister models.MessagePersister, w http.Response
 	// Апгрейдим HTTP соединение до WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("Upgrade error:", err)
+		atomic.AddInt64(&UpgradeFailures, 1)
+		log.Printf("Upgrade error #%d: %v", atomic.LoadInt64(&UpgradeFailures), err)
 		return
 	}
 
