@@ -53,6 +53,9 @@ type Message struct {
 
 	// Сообщение об ошибке (для type: error)
 	Error string `json:"error,omitempty"`
+
+	// Количество участников в комнате (для user_joined, user_left)
+	ParticipantCount int `json:"participant_count,omitempty"`
 }
 
 // NewChatMessage создает новое сообщение в комнату

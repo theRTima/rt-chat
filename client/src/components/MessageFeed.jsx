@@ -55,20 +55,6 @@ const MessageFeed = ({ messages }) => {
           </div>
         );
 
-      case MESSAGE_TYPES.USER_JOINED:
-        return (
-          <div key={index} className="system-message">
-            <span>{message.username} присоединился к комнате</span>
-          </div>
-        );
-
-      case MESSAGE_TYPES.USER_LEFT:
-        return (
-          <div key={index} className="system-message">
-            <span>{message.username} покинул комнату</span>
-          </div>
-        );
-
       case MESSAGE_TYPES.ERROR:
         return (
           <div key={index} className="error-message">

@@ -244,6 +244,7 @@ func (h *Hub) handleJoinRoom(client *Client, msg *Message) {
 
 	// Уведомляем всех в комнате о новом пользователе
 	notification := NewUserJoinedMessage(msg.RoomID, client.UserID, client.Username)
+	notification.ParticipantCount = room.GetClientCount()
 	h.broadcastToRoom(msg.RoomID, notification, nil)
 
 	// Сохраняем уведомление в БД через persister
@@ -271,12 +272,18 @@ func (h *Hub) handleLeaveRoom(client *Client, msg *Message) {
 	// Создаем уведомление до удаления клиента из комнаты
 	notification := NewUserLeftMessage(msg.RoomID, client.UserID, client.Username)
 
+	// Получаем количество до удаления (включает выходящего клиента)
+	beforeCount := room.GetClientCount()
+
 	// Отправляем уведомление выходящему клиенту напрямую
 	client.SendMessage(notification)
 
 	// Удаляем клиента из комнаты
 	room.RemoveClient(client)
 	client.RemoveRoom(msg.RoomID)
+
+	// Количество после выхода
+	notification.ParticipantCount = beforeCount - 1
 
 	// Сохраняем выход в БД (асинхронно)
 	if h.Storage != nil {

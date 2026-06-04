@@ -7,6 +7,7 @@ export const useChat = (roomId) => {
   const [messages, setMessages] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [participantCount, setParticipantCount] = useState(0);
 
   const wsRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
@@ -37,6 +38,16 @@ export const useChat = (roomId) => {
           for (const part of parts) {
             if (!part) continue;
             const message = JSON.parse(part);
+
+            // Track participant count from system messages, but don't
+            // show them in the message feed
+            if (message.type === MESSAGE_TYPES.USER_JOINED || message.type === MESSAGE_TYPES.USER_LEFT) {
+              if (typeof message.participant_count === 'number') {
+                setParticipantCount(message.participant_count);
+              }
+              continue;
+            }
+
             setMessages((prev) => {
               if (roomGenRef.current !== gen) return prev;
               return [...prev, message];
@@ -148,6 +159,7 @@ export const useChat = (roomId) => {
   useEffect(() => {
     roomGenRef.current += 1;
     setMessages([]);
+    setParticipantCount(0);
   }, [roomId]);
 
   useEffect(() => {
@@ -168,6 +180,7 @@ export const useChat = (roomId) => {
     messages,
     isConnected,
     isReconnecting,
+    participantCount,
     sendMessage,
     joinRoom,
     disconnect,

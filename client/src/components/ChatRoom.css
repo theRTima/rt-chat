@@ -73,11 +73,23 @@
   background-color: var(--bg-elevated);
 }
 
+.chat-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .chat-header h2 {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.participant-count {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  font-weight: 400;
 }
 
 .connection-status {

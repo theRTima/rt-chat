@@ -8,7 +8,7 @@ import './ChatRoom.css';
 
 const ChatRoom = () => {
   const { currentRoom, username, theme, toggleTheme } = useChatContext();
-  const { messages, isConnected, isReconnecting, sendMessage } = useChat(currentRoom);
+  const { messages, isConnected, isReconnecting, participantCount, sendMessage } = useChat(currentRoom);
 
   const handleSendMessage = (content) => {
     sendMessage(content);
@@ -30,8 +30,13 @@ const ChatRoom = () => {
       </div>
 
       <div className="chat-main">
-        <div className="chat-header">
-          <h2># {currentRoom}</h2>
+          <div className="chat-header">
+            <div className="chat-header-left">
+              <h2># {currentRoom}</h2>
+              {participantCount > 0 && (
+                <span className="participant-count">{participantCount} участников</span>
+              )}
+            </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <button className="theme-toggle" onClick={toggleTheme}>
               {theme === 'light' ? 'Темная' : 'Светлая'}
