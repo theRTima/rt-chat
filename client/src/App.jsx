@@ -9,10 +9,18 @@ function App() {
   useEffect(() => {
     const handler = () => {
       if (requestedRef.current) return;
-      if (!('Notification' in window)) return;
-      if (Notification.permission !== 'default') return;
+      if (!('Notification' in window)) {
+        console.log('Browser notifications not supported');
+        return;
+      }
+      if (Notification.permission !== 'default') {
+        console.log('Notification permission already:', Notification.permission);
+        return;
+      }
       requestedRef.current = true;
-      Notification.requestPermission();
+      Notification.requestPermission().then((permission) => {
+        console.log('Notification permission:', permission);
+      });
       document.removeEventListener('click', handler);
     };
     document.addEventListener('click', handler);

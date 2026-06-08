@@ -138,7 +138,7 @@ export const useChat = (roomId) => {
             if (message.type === MESSAGE_TYPES.CHAT && message.user_id !== userId) {
               // Only show notification if message is from a different channel than currently viewed
               // or if user is currently in DM view
-              const shouldNotify = activeDmUser || message.room_id !== roomId;
+              const shouldNotify = activeDmUser || message.room_id !== currentRoomRef.current;
               if (shouldNotify) {
                 tryBrowserNotification(`# ${message.room_id} — ${message.username}`, 'Новое сообщение');
                 setNotification(`# ${message.room_id} — ${message.username}`);
