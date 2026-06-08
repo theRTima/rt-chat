@@ -47,6 +47,7 @@ type Hub struct {
 type Storage interface {
 	UpsertUser(ctx context.Context, userID, username string) error
 	UpsertRoom(ctx context.Context, roomID, name string) error
+	GetRooms(ctx context.Context) ([]RoomInfo, error)
 	GetRoomHistory(ctx context.Context, roomID string, limit int) ([]*Message, error)
 	AddRoomMember(ctx context.Context, roomID, userID string) error
 	RemoveRoomMember(ctx context.Context, roomID, userID string) error

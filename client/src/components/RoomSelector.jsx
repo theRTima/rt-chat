@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useChatContext } from '../context/ChatContext';
 import './RoomSelector.css';
 
@@ -6,6 +6,28 @@ const DEFAULT_CHANNELS = [
   { id: 'general', name: 'Общий' },
   { id: 'random', name: 'Случайный' },
 ];
+
+const mergeChannels = (serverRooms, local) => {
+  const seen = new Set();
+  const merged = [];
+  for (const ch of DEFAULT_CHANNELS) {
+    merged.push(ch);
+    seen.add(ch.id);
+  }
+  for (const ch of local) {
+    if (!seen.has(ch.id)) {
+      merged.push(ch);
+      seen.add(ch.id);
+    }
+  }
+  for (const ch of serverRooms) {
+    if (!seen.has(ch.room_id)) {
+      merged.push({ id: ch.room_id, name: ch.name || ch.room_id });
+      seen.add(ch.room_id);
+    }
+  }
+  return merged;
+};
 
 const RoomSelector = ({ dmContacts, dmMessages, onLookupUser }) => {
   const { currentRoom, setCurrentRoom, activeDmUser, setActiveDmUser } = useChatContext();
@@ -22,10 +44,28 @@ const RoomSelector = ({ dmContacts, dmMessages, onLookupUser }) => {
   });
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const mergedRef = useRef(false);
 
   const persistChannels = (updated) => {
     localStorage.setItem('channels', JSON.stringify(updated));
   };
+
+  useEffect(() => {
+    if (mergedRef.current) return;
+    mergedRef.current = true;
+
+    fetch('/rooms')
+      .then((res) => res.json())
+      .then((serverRooms) => {
+        if (!Array.isArray(serverRooms)) return;
+        setChannels((prev) => {
+          const merged = mergeChannels(serverRooms, prev);
+          persistChannels(merged);
+          return merged;
+        });
+      })
+      .catch(() => {});
+  }, []);
 
   const handleCreateChannel = () => {
     const name = newChannelName.trim();

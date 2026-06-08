@@ -52,6 +52,32 @@ func (db *DB) UpsertRoom(ctx context.Context, roomID, name string) error {
 	return err
 }
 
+// GetRooms получает список всех известных комнат
+func (db *DB) GetRooms(ctx context.Context) ([]models.RoomInfo, error) {
+	query := `
+		SELECT room_id, name
+		FROM rooms
+		ORDER BY created_at ASC
+	`
+
+	rows, err := db.Pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rooms []models.RoomInfo
+	for rows.Next() {
+		var room models.RoomInfo
+		if err := rows.Scan(&room.RoomID, &room.Name); err != nil {
+			return nil, err
+		}
+		rooms = append(rooms, room)
+	}
+
+	return rooms, rows.Err()
+}
+
 // SaveMessage сохраняет одно сообщение в базу данных
 func (db *DB) SaveMessage(ctx context.Context, msg *models.Message) error {
 	query := `

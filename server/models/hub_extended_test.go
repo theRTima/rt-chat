@@ -41,6 +41,16 @@ func (m *mockStorage) UpsertRoom(_ context.Context, roomID, name string) error {
 	return nil
 }
 
+func (m *mockStorage) GetRooms(_ context.Context) ([]RoomInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var rooms []RoomInfo
+	for id, name := range m.rooms {
+		rooms = append(rooms, RoomInfo{RoomID: id, Name: name})
+	}
+	return rooms, nil
+}
+
 func (m *mockStorage) GetRoomHistory(_ context.Context, roomID string, limit int) ([]*Message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
