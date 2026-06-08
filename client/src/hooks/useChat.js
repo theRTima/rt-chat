@@ -2,13 +2,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useChatContext } from '../context/ChatContext';
 import { WS_URL, MESSAGE_TYPES, RECONNECT_DELAY, MAX_RECONNECT_ATTEMPTS } from '../utils/constants';
 
+let toastRef = null;
+
 const showNotification = (title, body) => {
   if (Notification.permission === 'granted') {
     try {
-      const n = new Notification(title, { body, icon: '/favicon.svg' });
+      const n = new Notification(title, { body, icon: '/favicon.svg', tag: 'rt-chat' });
       setTimeout(() => n.close(), 5000);
     } catch {}
   }
+
+  if (toastRef) { toastRef.remove(); toastRef = null; }
 
   const toast = document.createElement('div');
   toast.textContent = `${title} — ${body}`;
@@ -18,13 +22,13 @@ const showNotification = (title, body) => {
     padding: '12px 20px', borderRadius: '8px', fontSize: '14px',
     boxShadow: '0 4px 12px rgba(0,0,0,0.4)', maxWidth: '360px',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    transition: 'opacity 0.3s', cursor: 'pointer',
+    cursor: 'pointer',
   });
-  toast.onclick = () => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); };
+  toast.onclick = () => { toast.remove(); if (toastRef === toast) toastRef = null; };
   document.body.appendChild(toast);
+  toastRef = toast;
   setTimeout(() => {
-    toast.style.opacity = '0';
-    setTimeout(() => toast.remove(), 300);
+    if (toast.isConnected) { toast.remove(); if (toastRef === toast) toastRef = null; }
   }, 4000);
 };
 
@@ -128,7 +132,7 @@ export const useChat = (roomId) => {
               continue;
             }
 
-            if (message.room_id && message.room_id !== roomId) {
+            if (message.room_id && message.room_id !== currentRoomRef.current) {
               showNotification(`# ${message.room_id} — ${message.username}`, 'Новое сообщение');
             }
 
