@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useChatContext } from '../context/ChatContext';
 import './RoomSelector.css';
 
-const CHANNELS = [
+const DEFAULT_CHANNELS = [
   { id: 'general', name: 'Общий' },
   { id: 'random', name: 'Случайный' },
 ];
@@ -13,6 +13,36 @@ const RoomSelector = ({ dmContacts, dmMessages, onLookupUser }) => {
   const [lookupName, setLookupName] = useState('');
   const [lookupError, setLookupError] = useState('');
   const [lookupLoading, setLookupLoading] = useState(false);
+  const [channels, setChannels] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('channels') || 'null');
+      if (saved && Array.isArray(saved) && saved.length > 0) return saved;
+    } catch {}
+    return DEFAULT_CHANNELS;
+  });
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [newChannelName, setNewChannelName] = useState('');
+
+  const persistChannels = (updated) => {
+    localStorage.setItem('channels', JSON.stringify(updated));
+  };
+
+  const handleCreateChannel = () => {
+    const name = newChannelName.trim();
+    if (!name) return;
+
+    const id = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (!id) return;
+
+    if (channels.some((c) => c.id === id)) return;
+
+    const updated = [...channels, { id, name }];
+    setChannels(updated);
+    persistChannels(updated);
+    setShowCreateChannel(false);
+    setNewChannelName('');
+    handleSelectRoom(id);
+  };
 
   const handleAddPerson = async () => {
     const name = lookupName.trim();
@@ -51,9 +81,51 @@ const RoomSelector = ({ dmContacts, dmMessages, onLookupUser }) => {
   return (
     <div className="room-selector">
       <div className="sidebar-section">
-        <h3 className="sidebar-section-title">Каналы</h3>
+        <div className="sidebar-section-header">
+          <h3 className="sidebar-section-title">Каналы</h3>
+          <button
+            className="sidebar-add-button"
+            onClick={() => { setShowCreateChannel(true); setShowAddPerson(false); }}
+            title="Создать канал"
+          >
+            +
+          </button>
+        </div>
+
+        {showCreateChannel && (
+          <div className="add-person-form">
+            <input
+              type="text"
+              className="add-person-input"
+              placeholder="Название канала..."
+              value={newChannelName}
+              onChange={(e) => setNewChannelName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreateChannel();
+                if (e.key === 'Escape') { setShowCreateChannel(false); setNewChannelName(''); }
+              }}
+              autoFocus
+            />
+            <div className="add-person-actions">
+              <button
+                className="add-person-confirm"
+                onClick={handleCreateChannel}
+                disabled={!newChannelName.trim()}
+              >
+                Создать
+              </button>
+              <button
+                className="add-person-cancel"
+                onClick={() => { setShowCreateChannel(false); setNewChannelName(''); }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="sidebar-list">
-          {CHANNELS.map((room) => (
+          {channels.map((room) => (
             <button
               key={room.id}
               className={`sidebar-button ${currentRoom === room.id && !activeDmUser ? 'active' : ''}`}
