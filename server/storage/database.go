@@ -146,6 +146,22 @@ func (db *DB) InitSchema(ctx context.Context) error {
 		log.Printf("Warning: could not create unique index (non-fatal): %v", err)
 	}
 
+	// Seed default rooms (only if they don't exist yet)
+	defaultRooms := []struct {
+		roomID string
+		name   string
+	}{
+		{"general", "general"},
+		{"random", "random"},
+	}
+	for _, r := range defaultRooms {
+		if _, err := db.Pool.Exec(ctx,
+			`INSERT INTO rooms (room_id, name, created_at) VALUES ($1, $2, $3) ON CONFLICT (room_id) DO NOTHING`,
+			r.roomID, r.name, time.Now()); err != nil {
+			log.Printf("Warning: could not seed room %s: %v", r.roomID, err)
+		}
+	}
+
 	log.Printf("Database schema initialized successfully")
 	return nil
 }
