@@ -3,11 +3,29 @@ import { useChatContext } from '../context/ChatContext';
 import { WS_URL, MESSAGE_TYPES, RECONNECT_DELAY, MAX_RECONNECT_ATTEMPTS } from '../utils/constants';
 
 const tryBrowserNotification = (title, body) => {
+  if (!('Notification' in window)) {
+    console.log('Browser notifications not supported');
+    return;
+  }
+
   if (Notification.permission === 'granted') {
     try {
       const n = new Notification(title, { body, icon: '/favicon.svg', tag: 'rt-chat' });
       setTimeout(() => n.close(), 5000);
-    } catch {}
+    } catch (error) {
+      console.error('Browser notification failed:', error);
+    }
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then((permission) => {
+      if (permission === 'granted') {
+        try {
+          const n = new Notification(title, { body, icon: '/favicon.svg', tag: 'rt-chat' });
+          setTimeout(() => n.close(), 5000);
+        } catch (error) {
+          console.error('Browser notification failed after permission grant:', error);
+        }
+      }
+    });
   }
 };
 
@@ -118,8 +136,13 @@ export const useChat = (roomId) => {
             }
 
             if (message.type === MESSAGE_TYPES.CHAT && message.user_id !== userId) {
-              tryBrowserNotification(`# ${message.room_id} — ${message.username}`, 'Новое сообщение');
-              setNotification(`# ${message.room_id} — ${message.username}`);
+              // Only show notification if message is from a different channel than currently viewed
+              // or if user is currently in DM view
+              const shouldNotify = activeDmUser || message.room_id !== roomId;
+              if (shouldNotify) {
+                tryBrowserNotification(`# ${message.room_id} — ${message.username}`, 'Новое сообщение');
+                setNotification(`# ${message.room_id} — ${message.username}`);
+              }
             }
 
             setMessages((prev) => {
