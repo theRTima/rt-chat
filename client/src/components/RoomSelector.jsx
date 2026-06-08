@@ -7,19 +7,9 @@ const DEFAULT_CHANNELS = [
   { id: 'random', name: 'Случайный' },
 ];
 
-const mergeChannels = (serverRooms, local) => {
-  const seen = new Set();
-  const merged = [];
-  for (const ch of DEFAULT_CHANNELS) {
-    merged.push(ch);
-    seen.add(ch.id);
-  }
-  for (const ch of local) {
-    if (!seen.has(ch.id)) {
-      merged.push(ch);
-      seen.add(ch.id);
-    }
-  }
+const mergeChannels = (serverRooms) => {
+  const seen = new Set(DEFAULT_CHANNELS.map((c) => c.id));
+  const merged = [...DEFAULT_CHANNELS];
   for (const ch of serverRooms) {
     if (!seen.has(ch.room_id)) {
       merged.push({ id: ch.room_id, name: ch.name || ch.room_id });
@@ -35,34 +25,22 @@ const RoomSelector = ({ dmContacts, dmMessages, onLookupUser }) => {
   const [lookupName, setLookupName] = useState('');
   const [lookupError, setLookupError] = useState('');
   const [lookupLoading, setLookupLoading] = useState(false);
-  const [channels, setChannels] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('channels') || 'null');
-      if (saved && Array.isArray(saved) && saved.length > 0) return saved;
-    } catch {}
-    return DEFAULT_CHANNELS;
-  });
+  const [channels, setChannels] = useState(DEFAULT_CHANNELS);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
-  const mergedRef = useRef(false);
-
-  const persistChannels = (updated) => {
-    localStorage.setItem('channels', JSON.stringify(updated));
-  };
+  const fetchedRef = useRef(false);
 
   useEffect(() => {
-    if (mergedRef.current) return;
-    mergedRef.current = true;
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
 
     fetch('/rooms')
       .then((res) => res.json())
       .then((serverRooms) => {
         if (!Array.isArray(serverRooms)) return;
-        setChannels((prev) => {
-          const merged = mergeChannels(serverRooms, prev);
-          persistChannels(merged);
-          return merged;
-        });
+        const merged = mergeChannels(serverRooms);
+        setChannels(merged);
+        localStorage.setItem('channels', JSON.stringify(merged));
       })
       .catch(() => {});
   }, []);
@@ -78,7 +56,7 @@ const RoomSelector = ({ dmContacts, dmMessages, onLookupUser }) => {
 
     const updated = [...channels, { id, name }];
     setChannels(updated);
-    persistChannels(updated);
+    localStorage.setItem('channels', JSON.stringify(updated));
     setShowCreateChannel(false);
     setNewChannelName('');
     handleSelectRoom(id);
