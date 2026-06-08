@@ -85,7 +85,7 @@ export const useChat = (roomId) => {
               });
 
               if (message.user_id !== userId) {
-                showNotification(`DM от ${message.username}`, message.content);
+                showNotification(`DM от ${message.username}`, 'Новое сообщение');
               }
               continue;
             }
@@ -112,7 +112,7 @@ export const useChat = (roomId) => {
             }
 
             if (message.room_id && message.room_id !== roomId) {
-              showNotification(`# ${message.room_id} — ${message.username}`, message.content);
+              showNotification(`# ${message.room_id} — ${message.username}`, 'Новое сообщение');
             }
 
             setMessages((prev) => {
