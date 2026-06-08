@@ -3,11 +3,29 @@ import { useChatContext } from '../context/ChatContext';
 import { WS_URL, MESSAGE_TYPES, RECONNECT_DELAY, MAX_RECONNECT_ATTEMPTS } from '../utils/constants';
 
 const showNotification = (title, body) => {
-  if (Notification.permission !== 'granted') return;
-  try {
-    const n = new Notification(title, { body, icon: '/favicon.svg' });
-    setTimeout(() => n.close(), 5000);
-  } catch {}
+  if (Notification.permission === 'granted') {
+    try {
+      const n = new Notification(title, { body, icon: '/favicon.svg' });
+      setTimeout(() => n.close(), 5000);
+    } catch {}
+  }
+
+  const toast = document.createElement('div');
+  toast.textContent = `${title} — ${body}`;
+  Object.assign(toast.style, {
+    position: 'fixed', bottom: '20px', right: '20px', zIndex: '9999',
+    background: '#1e1e1e', color: '#e0e0e0',
+    padding: '12px 20px', borderRadius: '8px', fontSize: '14px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.4)', maxWidth: '360px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    transition: 'opacity 0.3s', cursor: 'pointer',
+  });
+  toast.onclick = () => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); };
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
 };
 
 export const useChat = (roomId) => {
