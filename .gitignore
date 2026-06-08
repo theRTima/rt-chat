@@ -81,3 +81,6 @@ lerna-debug.log*
 # Temporary files
 tmp/
 temp/
+
+# Hidden cheat-sheet
+.memory.md
