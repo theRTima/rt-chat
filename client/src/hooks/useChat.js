@@ -2,6 +2,15 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useChatContext } from '../context/ChatContext';
 import { WS_URL, MESSAGE_TYPES, RECONNECT_DELAY, MAX_RECONNECT_ATTEMPTS } from '../utils/constants';
 
+const showNotification = (title, body) => {
+  if (Notification.permission !== 'granted') return;
+  if (document.hasFocus?.()) return;
+  try {
+    const n = new Notification(title, { body, icon: '/favicon.svg' });
+    setTimeout(() => n.close(), 5000);
+  } catch {}
+};
+
 export const useChat = (roomId) => {
   const { userId, username, activeDmUser } = useChatContext();
   const [messages, setMessages] = useState([]);
@@ -74,6 +83,10 @@ export const useChat = (roomId) => {
                 const userMsgs = prev[otherId] || [];
                 return { ...prev, [otherId]: [...userMsgs, message] };
               });
+
+              if (message.user_id !== userId) {
+                showNotification(`DM от ${message.username}`, message.content);
+              }
               continue;
             }
 
@@ -96,6 +109,10 @@ export const useChat = (roomId) => {
             if (message.type === MESSAGE_TYPES.ERROR) {
               console.warn('Server error:', message.error || message.content);
               continue;
+            }
+
+            if (message.room_id && message.room_id !== roomId) {
+              showNotification(`# ${message.room_id} — ${message.username}`, message.content);
             }
 
             setMessages((prev) => {
