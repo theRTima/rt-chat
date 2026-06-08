@@ -3,7 +3,6 @@ import { useChatContext } from '../context/ChatContext';
 import { WS_URL, MESSAGE_TYPES, RECONNECT_DELAY, MAX_RECONNECT_ATTEMPTS } from '../utils/constants';
 
 const tryBrowserNotification = (title, body) => {
-  console.log('tryBrowserNotification called:', { title, body, permission: Notification.permission });
   if (!('Notification' in window)) {
     console.log('Browser notifications not supported');
     return;
@@ -11,16 +10,13 @@ const tryBrowserNotification = (title, body) => {
 
   if (Notification.permission === 'granted') {
     try {
-      console.log('Creating browser notification');
       const n = new Notification(title, { body, icon: '/favicon.svg', tag: 'rt-chat' });
       setTimeout(() => n.close(), 5000);
     } catch (error) {
       console.error('Browser notification failed:', error);
     }
   } else if (Notification.permission !== 'denied') {
-    console.log('Requesting notification permission');
     Notification.requestPermission().then((permission) => {
-      console.log('Permission result:', permission);
       if (permission === 'granted') {
         try {
           const n = new Notification(title, { body, icon: '/favicon.svg', tag: 'rt-chat' });
@@ -30,8 +26,6 @@ const tryBrowserNotification = (title, body) => {
         }
       }
     });
-  } else {
-    console.log('Notification permission denied');
   }
 };
 
@@ -142,22 +136,8 @@ export const useChat = (roomId) => {
             }
 
             if (message.type === MESSAGE_TYPES.CHAT && message.user_id !== userId) {
-              // Only show notification if message is from a different channel than currently viewed
-              // or if user is currently in DM view
-              const currentRoom = currentRoomRef.current || roomId;
-              const shouldNotify = activeDmUser || message.room_id !== currentRoom;
-              console.log('Channel message notification check:', {
-                messageRoom: message.room_id,
-                currentRoom,
-                activeDmUser,
-                shouldNotify,
-                currentRoomRef: currentRoomRef.current,
-                roomIdParam: roomId
-              });
-              if (shouldNotify) {
-                tryBrowserNotification(`# ${message.room_id} — ${message.username}`, 'Новое сообщение');
-                setNotification(`# ${message.room_id} — ${message.username}`);
-              }
+              tryBrowserNotification(`# ${message.room_id} — ${message.username}`, 'Новое сообщение');
+              setNotification(`# ${message.room_id} — ${message.username}`);
             }
 
             setMessages((prev) => {
