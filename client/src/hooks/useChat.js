@@ -4,7 +4,6 @@ import { WS_URL, MESSAGE_TYPES, RECONNECT_DELAY, MAX_RECONNECT_ATTEMPTS } from '
 
 const showNotification = (title, body) => {
   if (Notification.permission !== 'granted') return;
-  if (document.hasFocus?.()) return;
   try {
     const n = new Notification(title, { body, icon: '/favicon.svg' });
     setTimeout(() => n.close(), 5000);
