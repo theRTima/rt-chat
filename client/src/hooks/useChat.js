@@ -2,34 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useChatContext } from '../context/ChatContext';
 import { WS_URL, MESSAGE_TYPES, RECONNECT_DELAY, MAX_RECONNECT_ATTEMPTS } from '../utils/constants';
 
-let toastRef = null;
-
-const showNotification = (title, body) => {
+const tryBrowserNotification = (title, body) => {
   if (Notification.permission === 'granted') {
     try {
       const n = new Notification(title, { body, icon: '/favicon.svg', tag: 'rt-chat' });
       setTimeout(() => n.close(), 5000);
     } catch {}
   }
-
-  if (toastRef) { toastRef.remove(); toastRef = null; }
-
-  const toast = document.createElement('div');
-  toast.textContent = `${title} — ${body}`;
-  Object.assign(toast.style, {
-    position: 'fixed', bottom: '20px', right: '20px', zIndex: '9999',
-    background: '#1e1e1e', color: '#e0e0e0',
-    padding: '12px 20px', borderRadius: '8px', fontSize: '14px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.4)', maxWidth: '360px',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    cursor: 'pointer',
-  });
-  toast.onclick = () => { toast.remove(); if (toastRef === toast) toastRef = null; };
-  document.body.appendChild(toast);
-  toastRef = toast;
-  setTimeout(() => {
-    if (toast.isConnected) { toast.remove(); if (toastRef === toast) toastRef = null; }
-  }, 4000);
 };
 
 export const useChat = (roomId) => {
@@ -38,6 +17,10 @@ export const useChat = (roomId) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
+
+  // Notification state
+  const [notification, setNotification] = useState(null);
+  const notifTimerRef = useRef(null);
 
   // DM state
   const [dmContacts, setDmContacts] = useState(() => {
@@ -54,6 +37,7 @@ export const useChat = (roomId) => {
   const currentRoomRef = useRef(null);
   const roomGenRef = useRef(0);
   const lookupResolveRef = useRef(null);
+  const lastDmLoadRef = useRef(0);
 
   // Persist contacts
   useEffect(() => {
@@ -105,8 +89,9 @@ export const useChat = (roomId) => {
                 return { ...prev, [otherId]: [...userMsgs, message] };
               });
 
-              if (message.user_id !== userId) {
-                showNotification(`DM от ${message.username}`, 'Новое сообщение');
+              if (message.user_id !== userId && Date.now() - lastDmLoadRef.current > 500) {
+                tryBrowserNotification(`DM от ${message.username}`, 'Новое сообщение');
+                setNotification(`DM от ${message.username}`);
               }
               continue;
             }
@@ -132,8 +117,9 @@ export const useChat = (roomId) => {
               continue;
             }
 
-            if (message.room_id && message.room_id !== currentRoomRef.current) {
-              showNotification(`# ${message.room_id} — ${message.username}`, 'Новое сообщение');
+            if (message.type === MESSAGE_TYPES.CHAT && message.user_id !== userId) {
+              tryBrowserNotification(`# ${message.room_id} — ${message.username}`, 'Новое сообщение');
+              setNotification(`# ${message.room_id} — ${message.username}`);
             }
 
             setMessages((prev) => {
@@ -286,12 +272,25 @@ export const useChat = (roomId) => {
   useEffect(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN && activeDmUser) {
       setDmMessages((prev) => ({ ...prev, [activeDmUser]: [] }));
+      lastDmLoadRef.current = Date.now();
       wsRef.current.send(JSON.stringify({
         type: MESSAGE_TYPES.LOAD_DM_HISTORY,
         to_user_id: activeDmUser,
       }));
     }
   }, [activeDmUser, isConnected]);
+
+  const clearNotification = useCallback(() => {
+    setNotification(null);
+    if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (notification) {
+      if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
+      notifTimerRef.current = setTimeout(() => setNotification(null), 4000);
+    }
+  }, [notification]);
 
   useEffect(() => {
     connect();
@@ -313,5 +312,7 @@ export const useChat = (roomId) => {
     setDmContacts,
     dmMessages,
     lookupUser,
+    notification,
+    clearNotification,
   };
 };

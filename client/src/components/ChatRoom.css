@@ -120,3 +120,19 @@
 .connection-status.disconnected {
   color: var(--accent-red);
 }
+
+.toast-notification {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  background: var(--bg-elevated, #1e1e1e);
+  color: var(--text-primary, #e0e0e0);
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  max-width: 360px;
+  cursor: pointer;
+  border: 1px solid var(--border-color, #333);
+}

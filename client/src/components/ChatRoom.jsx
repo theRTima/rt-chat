@@ -12,6 +12,7 @@ const ChatRoom = () => {
   const {
     messages, isConnected, isReconnecting, participantCount,
     sendMessage, dmContacts, dmMessages, lookupUser,
+    notification, clearNotification,
   } = useChat(currentRoom);
 
   const handleSendMessage = (content) => {
@@ -89,6 +90,12 @@ const ChatRoom = () => {
         <MessageFeed messages={activeDmUser ? activeDmMessages : messages} />
         <MessageInput onSendMessage={handleSendMessage} disabled={!isConnected} />
       </div>
+
+      {notification && (
+        <div className="toast-notification" onClick={clearNotification}>
+          {notification}
+        </div>
+      )}
     </div>
   );
 };
